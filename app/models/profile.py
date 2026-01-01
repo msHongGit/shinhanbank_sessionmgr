@@ -2,6 +2,7 @@
 Session Manager - CustomerProfile Model
 개인화 프로파일 테이블 (VDB 배치 연동)
 """
+
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text
@@ -12,10 +13,11 @@ from app.models import Base
 class CustomerProfile(Base):
     """
     개인화 프로파일 테이블
-    
+
     VDB(Vertical DB)에서 배치로 가져온 고객 프로파일 정보.
     attribute_key/value 쌍으로 저장.
     """
+
     __tablename__ = "customer_profiles"
 
     # Primary Key
@@ -51,14 +53,10 @@ class CustomerProfile(Base):
 
     # 복합 인덱스
     __table_args__ = (
-        Index('idx_user_attribute', 'user_id', 'attribute_key'),
-        Index('idx_user_validity', 'user_id', 'valid_from', 'valid_to'),
-        Index('idx_context_user', 'context_id', 'user_id'),
+        Index("idx_user_attribute", "user_id", "attribute_key"),
+        Index("idx_user_validity", "user_id", "valid_from", "valid_to"),
+        Index("idx_context_user", "context_id", "user_id"),
     )
 
     def __repr__(self):
-        return (
-            f"<CustomerProfile(id={self.id}, "
-            f"user_id={self.user_id}, "
-            f"key={self.attribute_key})>"
-        )
+        return f"<CustomerProfile(id={self.id}, user_id={self.user_id}, key={self.attribute_key})>"

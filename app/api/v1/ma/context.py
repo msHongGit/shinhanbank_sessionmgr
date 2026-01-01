@@ -25,7 +25,7 @@ router = APIRouter(prefix="/ma/context", tags=["MA - Conversation History"])
     
     - Talk 요청 시 conversation_history에 포함할 데이터
     - context_id 또는 global_session_key로 조회
-    """
+    """,
 )
 def get_conversation_history(
     global_session_key: str = Query(..., description="Global 세션 키"),
@@ -46,7 +46,7 @@ def get_conversation_history(
     
     - 사용자 발화, 어시스턴트 응답 저장
     - 각 턴마다 호출
-    """
+    """,
 )
 def save_conversation_turn(
     request: ConversationTurnSaveRequest,

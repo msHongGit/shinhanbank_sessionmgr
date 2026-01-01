@@ -3,6 +3,7 @@ Session Manager - Main Application (v4.0)
 호출자별 API 분리: AGW, MA, Portal, Batch(VDB)
 Sprint 1: Mock Repository 사용 (DB/Redis 연결 옵션)
 """
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -116,4 +117,5 @@ app.include_router(api_router, prefix=settings.API_PREFIX)
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=settings.DEBUG)

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/ma/profiles", tags=["MA - Customer Profile"])
     
     - Start 요청 시 customer_profile에 포함할 데이터
     - attribute_keys로 특정 속성만 필터링 가능
-    """
+    """,
 )
 def get_customer_profile(
     user_id: str,

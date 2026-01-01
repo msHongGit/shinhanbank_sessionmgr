@@ -32,7 +32,7 @@ router = APIRouter(prefix="/ma/sessions", tags=["MA - Session Management"])
     
     - 세션 상태, Task Queue 상태, SubAgent 상태 등 반환
     - 업무 Agent인 경우 Global↔Local 매핑도 조회
-    """
+    """,
 )
 def resolve_session(
     global_session_key: str = Query(..., description="Global 세션 키"),
@@ -42,12 +42,7 @@ def resolve_session(
     service: SessionService = Depends(get_session_service),
     api_key: str = Depends(verify_ma_api_key),
 ):
-    request = SessionResolveRequest(
-        global_session_key=global_session_key,
-        channel=channel,
-        agent_type=agent_type,
-        agent_id=agent_id
-    )
+    request = SessionResolveRequest(global_session_key=global_session_key, channel=channel, agent_type=agent_type, agent_id=agent_id)
     return service.resolve_session(request)
 
 
@@ -61,7 +56,7 @@ def resolve_session(
     
     - Global↔Local 세션 매핑 생성
     - 이후 MA는 이 매핑을 조회하여 Local 세션 키로 업무 Agent 호출
-    """
+    """,
 )
 def register_local_session(
     request: LocalSessionRegisterRequest,
@@ -72,10 +67,7 @@ def register_local_session(
 
 
 @router.get(
-    "/local",
-    response_model=LocalSessionGetResponse,
-    summary="Local 세션 조회",
-    description="Global 세션 키로 Local 세션 키를 조회합니다."
+    "/local", response_model=LocalSessionGetResponse, summary="Local 세션 조회", description="Global 세션 키로 Local 세션 키를 조회합니다."
 )
 def get_local_session(
     global_session_key: str = Query(..., description="Global 세션 키"),
@@ -95,7 +87,7 @@ def get_local_session(
     
     - SubAgent 상태, 마지막 이벤트 등 업데이트
     - SA 응답 후 MA가 호출
-    """
+    """,
 )
 def patch_session_state(
     request: SessionPatchRequest,
@@ -115,7 +107,7 @@ def patch_session_state(
     - 세션 상태를 'end'로 변경
     - 모든 Local 세션 매핑 삭제
     - Task Queue 정리
-    """
+    """,
 )
 def close_session(
     request: SessionCloseRequest,

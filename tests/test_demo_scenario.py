@@ -34,6 +34,7 @@ uv run pytest tests/test_demo_scenario.py::TestDemoAPISummary::test_list_demo_ap
 - DEMO_SCENARIO_V2.md: 데모 시나리오 전체 흐름
 - Session_Manager_API_Sprint2.md: Sprint 2 전체 API 명세 (13개)
 """
+
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
@@ -45,7 +46,7 @@ class TestDemoScenarioSimple:
     def test_demo_apis_sequential(self, client: TestClient, agw_headers, ma_headers):
         """
         데모 시나리오의 모든 API를 순차적으로 호출 테스트
-        
+
         사용되는 API:
         1. POST /api/v1/agw/sessions - 세션 생성
         2. GET /api/v1/ma/sessions/resolve - 세션 조회
@@ -62,13 +63,8 @@ class TestDemoScenarioSimple:
         print("\n[1] POST /api/v1/agw/sessions - 세션 생성")
         session_resp = client.post(
             "/api/v1/agw/sessions",
-            json={
-                "global_session_key": "gsess_demo_test",
-                "user_id": "user_vip_001",
-                "channel": "web",
-                "request_id": "req_demo_test"
-            },
-            headers=agw_headers
+            json={"global_session_key": "gsess_demo_test", "user_id": "user_vip_001", "channel": "web", "request_id": "req_demo_test"},
+            headers=agw_headers,
         )
         assert session_resp.status_code == 201, f"세션 생성 실패: {session_resp.json()}"
         session_data = session_resp.json()
@@ -84,12 +80,7 @@ class TestDemoScenarioSimple:
         # 2. GET /api/v1/ma/sessions/resolve - 세션 조회
         print("\n[2] GET /api/v1/ma/sessions/resolve - 세션 조회")
         resolve_resp = client.get(
-            "/api/v1/ma/sessions/resolve",
-            params={
-                "global_session_key": global_session_key,
-                "channel": "web"
-            },
-            headers=ma_headers
+            "/api/v1/ma/sessions/resolve", params={"global_session_key": global_session_key, "channel": "web"}, headers=ma_headers
         )
         assert resolve_resp.status_code == 200, f"세션 조회 실패: {resolve_resp.json()}"
         resolve_data = resolve_resp.json()
@@ -101,10 +92,7 @@ class TestDemoScenarioSimple:
 
         # 3. GET /api/v1/ma/profiles/{user_id} - 프로파일 조회
         print("\n[3] GET /api/v1/ma/profiles/user_vip_001 - 프로파일 조회")
-        profile_resp = client.get(
-            "/api/v1/ma/profiles/user_vip_001",
-            headers=ma_headers
-        )
+        profile_resp = client.get("/api/v1/ma/profiles/user_vip_001", headers=ma_headers)
         assert profile_resp.status_code == 200, f"프로파일 조회 실패: {profile_resp.json()}"
         profile_data = profile_resp.json()
         print("   ✅ 프로파일 조회 성공")
@@ -123,10 +111,10 @@ class TestDemoScenarioSimple:
                     "turn_id": "turn_001",
                     "role": "user",
                     "content": "환율 1400원 이상일 때 100만원 환전해줘",
-                    "timestamp": datetime.now(UTC).isoformat()
-                }
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
             },
-            headers=ma_headers
+            headers=ma_headers,
         )
         assert user_turn_resp.status_code == 201, f"대화 턴 저장 실패: {user_turn_resp.json()}"
         user_turn_data = user_turn_resp.json()
@@ -143,13 +131,9 @@ class TestDemoScenarioSimple:
                 "conversation_id": conversation_id,
                 "turn_id": "turn_001",
                 "session_state": "talk",
-                "state_patch": {
-                    "subagent_status": "continue",
-                    "last_agent_id": "sa_exchange",
-                    "last_agent_type": "task"
-                }
+                "state_patch": {"subagent_status": "continue", "last_agent_id": "sa_exchange", "last_agent_type": "task"},
             },
-            headers=ma_headers
+            headers=ma_headers,
         )
         assert state_resp.status_code == 200, f"세션 상태 업데이트 실패: {state_resp.json()}"
         state_data = state_resp.json()
@@ -168,10 +152,10 @@ class TestDemoScenarioSimple:
                     "turn_id": "turn_002",
                     "role": "assistant",
                     "content": "100만원을 환전하였습니다.",
-                    "timestamp": datetime.now(UTC).isoformat()
-                }
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
             },
-            headers=ma_headers
+            headers=ma_headers,
         )
         assert assistant_turn_resp.status_code == 201, f"대화 턴 저장 실패: {assistant_turn_resp.json()}"
         assistant_turn_data = assistant_turn_resp.json()
@@ -182,12 +166,7 @@ class TestDemoScenarioSimple:
         # 7. GET /api/v1/ma/context/history - 대화 이력 조회
         print("\n[7] GET /api/v1/ma/context/history - 대화 이력 조회")
         history_resp = client.get(
-            "/api/v1/ma/context/history",
-            params={
-                "global_session_key": global_session_key,
-                "context_id": context_id
-            },
-            headers=ma_headers
+            "/api/v1/ma/context/history", params={"global_session_key": global_session_key, "context_id": context_id}, headers=ma_headers
         )
         assert history_resp.status_code == 200, f"대화 이력 조회 실패: {history_resp.json()}"
         history_data = history_resp.json()
@@ -205,9 +184,9 @@ class TestDemoScenarioSimple:
                 "global_session_key": global_session_key,
                 "conversation_id": conversation_id,
                 "close_reason": "task_completed",
-                "final_summary": "환율 조건부 환전 완료"
+                "final_summary": "환율 조건부 환전 완료",
             },
-            headers=ma_headers
+            headers=ma_headers,
         )
         assert close_resp.status_code == 200, f"세션 종료 실패: {close_resp.json()}"
         close_data = close_resp.json()

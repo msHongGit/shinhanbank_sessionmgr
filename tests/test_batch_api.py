@@ -3,6 +3,7 @@ Session Manager - Batch API Tests (v4.0)
 VDB → SM
 Sprint 1: Mock Repository 사용
 """
+
 from datetime import UTC, datetime
 
 
@@ -16,26 +17,12 @@ class TestBatchProfileUpload:
             "source_system": "VDB",
             "computed_at": datetime.now(UTC).isoformat(),
             "records": [
-                {
-                    "user_id": "user001",
-                    "attributes": [
-                        {"key": "segment", "value": "VIP", "source_system": "VDB"}
-                    ]
-                },
-                {
-                    "user_id": "user002",
-                    "attributes": [
-                        {"key": "segment", "value": "GOLD", "source_system": "VDB"}
-                    ]
-                }
-            ]
+                {"user_id": "user001", "attributes": [{"key": "segment", "value": "VIP", "source_system": "VDB"}]},
+                {"user_id": "user002", "attributes": [{"key": "segment", "value": "GOLD", "source_system": "VDB"}]},
+            ],
         }
 
-        response = client.post(
-            "/api/v1/batch/profiles",
-            json=request,
-            headers=vdb_headers
-        )
+        response = client.post("/api/v1/batch/profiles", json=request, headers=vdb_headers)
 
         assert response.status_code == 200
         data = response.json()

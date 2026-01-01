@@ -1,6 +1,7 @@
 """
 Session Manager - Schemas Package (v3.0)
 """
+
 from app.schemas.agw import (
     SessionCreateRequest,
     SessionCreateResponse,

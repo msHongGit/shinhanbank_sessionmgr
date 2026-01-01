@@ -22,6 +22,7 @@ router = APIRouter(prefix="/portal", tags=["Portal - Admin"])
 
 # ============ 세션 조회 (읽기 전용) ============
 
+
 @router.get(
     "/sessions",
     response_model=SessionListResponse,
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/portal", tags=["Portal - Admin"])
     - 필터링: user_id, session_state
     - 페이징 지원
     - 세션 삭제는 불가
-    """
+    """,
 )
 def list_sessions(
     page: int = Query(1, ge=1, description="페이지 번호"),
@@ -47,11 +48,12 @@ def list_sessions(
 
 # ============ Context 관리 ============
 
+
 @router.get(
     "/context/{context_id}",
     response_model=ContextInfoResponse,
     summary="Context 정보 조회",
-    description="Context(대화 이력) 정보를 조회합니다."
+    description="Context(대화 이력) 정보를 조회합니다.",
 )
 def get_context_info(
     context_id: str,
@@ -70,7 +72,7 @@ def get_context_info(
     
     - context_id 기준으로 대화 이력 삭제
     - 세션 자체는 삭제되지 않음
-    """
+    """,
 )
 def delete_context(
     context_id: str,

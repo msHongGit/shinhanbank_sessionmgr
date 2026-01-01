@@ -2,6 +2,7 @@
 Session Manager - Mock Session Repository (v4.0 - Sync)
 In-Memory Dict 기반 세션 저장소 (Singleton)
 """
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -85,9 +86,7 @@ class MockSessionRepository(SessionRepositoryInterface):
             return True
         return False
 
-    def set_local_mapping(
-        self, global_session_key: str, agent_id: str, local_session_key: str, agent_type: str
-    ) -> str:
+    def set_local_mapping(self, global_session_key: str, agent_id: str, local_session_key: str, agent_type: str) -> str:
         """Global↔Local 세션 매핑 등록"""
         mapping_key = f"{global_session_key}:{agent_id}"
         mapping_id = self._generate_id("map")

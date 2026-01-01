@@ -2,6 +2,7 @@
 Session Manager - SystemContext Model
 시스템 연동 개인화 컨텍스트 테이블
 """
+
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text
@@ -12,10 +13,11 @@ from app.models import Base
 class SystemContext(Base):
     """
     시스템 연동 개인화 컨텍스트 테이블
-    
+
     외부 시스템에서 가져온 사용자 컨텍스트 정보.
     attribute_key/value 쌍으로 저장.
     """
+
     __tablename__ = "system_contexts"
 
     # Primary Key
@@ -42,13 +44,9 @@ class SystemContext(Base):
 
     # 복합 인덱스
     __table_args__ = (
-        Index('idx_context_attribute', 'context_id', 'attribute_key'),
-        Index('idx_context_validity', 'context_id', 'valid_from', 'valid_to'),
+        Index("idx_context_attribute", "context_id", "attribute_key"),
+        Index("idx_context_validity", "context_id", "valid_from", "valid_to"),
     )
 
     def __repr__(self):
-        return (
-            f"<SystemContext(id={self.id}, "
-            f"context_id={self.context_id}, "
-            f"key={self.attribute_key})>"
-        )
+        return f"<SystemContext(id={self.id}, context_id={self.context_id}, key={self.attribute_key})>"

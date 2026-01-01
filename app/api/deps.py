@@ -12,47 +12,37 @@ from app.services.session_service import SessionService
 
 # ============ API Key 검증 (호출자별) ============
 
+
 def verify_agw_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> str:
     """AGW API Key 검증"""
     if not x_api_key or x_api_key != settings.AGW_API_KEY:
-        raise HTTPException(
-            status_code=401,
-            detail={"code": "AUTH001", "message": "Invalid AGW API key"}
-        )
+        raise HTTPException(status_code=401, detail={"code": "AUTH001", "message": "Invalid AGW API key"})
     return x_api_key
 
 
 def verify_ma_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> str:
     """MA API Key 검증"""
     if not x_api_key or x_api_key != settings.MA_API_KEY:
-        raise HTTPException(
-            status_code=401,
-            detail={"code": "AUTH002", "message": "Invalid MA API key"}
-        )
+        raise HTTPException(status_code=401, detail={"code": "AUTH002", "message": "Invalid MA API key"})
     return x_api_key
 
 
 def verify_portal_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> str:
     """Portal API Key 검증"""
     if not x_api_key or x_api_key != settings.PORTAL_API_KEY:
-        raise HTTPException(
-            status_code=401,
-            detail={"code": "AUTH003", "message": "Invalid Portal API key"}
-        )
+        raise HTTPException(status_code=401, detail={"code": "AUTH003", "message": "Invalid Portal API key"})
     return x_api_key
 
 
 def verify_vdb_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> str:
     """VDB API Key 검증"""
     if not x_api_key or x_api_key != settings.VDB_API_KEY:
-        raise HTTPException(
-            status_code=401,
-            detail={"code": "AUTH004", "message": "Invalid VDB API key"}
-        )
+        raise HTTPException(status_code=401, detail={"code": "AUTH004", "message": "Invalid VDB API key"})
     return x_api_key
 
 
 # ============ Service 의존성 ============
+
 
 def get_session_service() -> SessionService:
     """SessionService 의존성"""

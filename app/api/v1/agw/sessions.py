@@ -3,6 +3,7 @@ Session Manager - AGW API (v4.0)
 Agent GW → SM
 초기 세션 생성 (Client가 발급한 Global Key 전달)
 """
+
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_session_service, verify_agw_api_key
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/agw", tags=["AGW - Agent Gateway"])
     - Client가 발급한 Global Session Key를 전달받아 세션 생성
     - 기존 세션이 유효하면 기존 세션 정보 반환 (is_new=false)
     - 새 세션 생성 시 conversation_id, context_id 발급
-    """
+    """,
 )
 def create_session(
     request: SessionCreateRequest,
@@ -32,7 +33,7 @@ def create_session(
 ):
     """
     초기 세션 생성 API
-    
+
     - **global_session_key**: Client가 발급한 Global 세션 키
     - **user_id**: 사용자 ID
     - **channel**: 채널 (mobile, web, kiosk)
@@ -40,4 +41,3 @@ def create_session(
     - **device_info**: 디바이스 정보 (옵션)
     """
     return service.create_session(request)
-

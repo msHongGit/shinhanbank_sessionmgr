@@ -2,6 +2,7 @@
 Session Manager - Batch API (v4.0)
 VDB → SM 배치 처리
 """
+
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_profile_service, verify_vdb_api_key
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/batch", tags=["Batch - VDB"])
     
     - 다수의 고객 프로파일을 한 번에 Upsert
     - 처리 결과 (성공/실패 건수) 반환
-    """
+    """,
 )
 def batch_upsert_profiles(
     request: BatchProfileRequest,

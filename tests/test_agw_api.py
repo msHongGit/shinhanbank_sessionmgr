@@ -23,20 +23,12 @@ class TestAGWSessionCreate:
 
     def test_create_session_invalid_api_key(self, client, sample_agw_session_create_request):
         """잘못된 API Key"""
-        response = client.post(
-            "/api/v1/agw/sessions",
-            json=sample_agw_session_create_request,
-            headers={"X-API-Key": "wrong-key"}
-        )
+        response = client.post("/api/v1/agw/sessions", json=sample_agw_session_create_request, headers={"X-API-Key": "wrong-key"})
         assert response.status_code == 401
 
     def test_create_session_success(self, client, agw_headers, sample_agw_session_create_request):
         """세션 생성 성공"""
-        response = client.post(
-            "/api/v1/agw/sessions",
-            json=sample_agw_session_create_request,
-            headers=agw_headers
-        )
+        response = client.post("/api/v1/agw/sessions", json=sample_agw_session_create_request, headers=agw_headers)
 
         assert response.status_code == 201
         data = response.json()
@@ -49,21 +41,13 @@ class TestAGWSessionCreate:
     def test_create_session_existing(self, client, agw_headers, sample_agw_session_create_request):
         """기존 세션 반환"""
         # 첫 번째 생성
-        response1 = client.post(
-            "/api/v1/agw/sessions",
-            json=sample_agw_session_create_request,
-            headers=agw_headers
-        )
+        response1 = client.post("/api/v1/agw/sessions", json=sample_agw_session_create_request, headers=agw_headers)
         assert response1.status_code == 201
         first_data = response1.json()
         assert first_data["is_new"] is True
 
         # 동일 세션 키로 다시 요청 (기존 세션 반환)
-        response2 = client.post(
-            "/api/v1/agw/sessions",
-            json=sample_agw_session_create_request,
-            headers=agw_headers
-        )
+        response2 = client.post("/api/v1/agw/sessions", json=sample_agw_session_create_request, headers=agw_headers)
 
         assert response2.status_code == 201
         data = response2.json()
@@ -76,6 +60,6 @@ class TestAGWSessionCreate:
         response = client.post(
             "/api/v1/agw/sessions",
             json=sample_agw_session_create_request,
-            headers=ma_headers  # MA API Key 사용
+            headers=ma_headers,  # MA API Key 사용
         )
         assert response.status_code == 401

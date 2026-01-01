@@ -2,6 +2,7 @@
 Session Manager - Redis Connection (Sync)
 v3.0: 모든 연동 Sync 방식
 """
+
 import json
 from typing import Any
 
@@ -82,14 +83,7 @@ class RedisHelper:
 
     # ============ Global↔Local Session Mapping ============
 
-    def set_session_mapping(
-        self,
-        global_session_key: str,
-        agent_id: str,
-        local_session_key: str,
-        agent_type: str,
-        ttl: int = None
-    ) -> str:
+    def set_session_mapping(self, global_session_key: str, agent_id: str, local_session_key: str, agent_type: str, ttl: int = None) -> str:
         """Global↔Local 세션 매핑 저장"""
         mapping_key = f"session_map:{global_session_key}:{agent_id}"
         mapping_data = {

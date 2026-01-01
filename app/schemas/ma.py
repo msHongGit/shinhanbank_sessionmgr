@@ -2,6 +2,7 @@
 Session Manager - MA Schemas (v3.0)
 MA → SM 요청/응답 스키마
 """
+
 from datetime import datetime
 from typing import Any
 
@@ -11,8 +12,10 @@ from app.schemas.common import AgentType, ConversationTurn, CustomerProfile, Res
 
 # ============ ResolveSession ============
 
+
 class SessionResolveRequest(BaseModel):
     """세션 조회 요청 (MA → SM)"""
+
     global_session_key: str = Field(..., description="Global 세션 키")
     channel: str | None = Field(None, description="채널 (옵션)")
     agent_type: AgentType | None = Field(None, description="호출할 Agent 유형")
@@ -21,6 +24,7 @@ class SessionResolveRequest(BaseModel):
 
 class LastEvent(BaseModel):
     """마지막 이벤트 정보"""
+
     event_type: str
     agent_id: str | None = None
     agent_type: AgentType | None = None
@@ -30,6 +34,7 @@ class LastEvent(BaseModel):
 
 class SessionResolveResponse(BaseModel):
     """세션 조회 응답"""
+
     global_session_key: str = Field(..., description="Global 세션 키")
     local_session_key: str | None = Field(None, description="Local 세션 키 (업무 Agent)")
     conversation_id: str = Field(..., description="대화 ID")
@@ -44,8 +49,10 @@ class SessionResolveResponse(BaseModel):
 
 # ============ Local Session 등록/조회 ============
 
+
 class LocalSessionRegisterRequest(BaseModel):
     """Local 세션 등록 요청 (MA → SM) - 업무 Agent Start 후"""
+
     global_session_key: str = Field(..., description="Global 세션 키")
     local_session_key: str = Field(..., description="업무 Agent가 발급한 Local 세션 키")
     agent_id: str = Field(..., description="업무 Agent ID")
@@ -57,7 +64,7 @@ class LocalSessionRegisterRequest(BaseModel):
                 "global_session_key": "gsess_20250316_user_001",
                 "local_session_key": "lsess_agent_transfer_001",
                 "agent_id": "agent-transfer",
-                "agent_type": "task"
+                "agent_type": "task",
             }
         }
     )
@@ -65,6 +72,7 @@ class LocalSessionRegisterRequest(BaseModel):
 
 class LocalSessionRegisterResponse(BaseModel):
     """Local 세션 등록 응답"""
+
     status: str = Field(..., description="처리 상태")
     mapping_id: str = Field(..., description="매핑 ID")
     expires_at: datetime = Field(..., description="매핑 만료 시각")
@@ -72,6 +80,7 @@ class LocalSessionRegisterResponse(BaseModel):
 
 class LocalSessionGetResponse(BaseModel):
     """Local 세션 조회 응답"""
+
     global_session_key: str
     local_session_key: str | None = Field(None, description="없으면 null")
     agent_id: str
@@ -81,8 +90,10 @@ class LocalSessionGetResponse(BaseModel):
 
 # ============ 세션 상태 업데이트 ============
 
+
 class StatePatch(BaseModel):
     """세션 상태 패치 데이터"""
+
     subagent_status: SubAgentStatus | None = None
     action_owner: str | None = None
     reference_information: dict[str, Any] | None = None
@@ -94,6 +105,7 @@ class StatePatch(BaseModel):
 
 class SessionPatchRequest(BaseModel):
     """세션 상태 업데이트 요청 (MA → SM)"""
+
     global_session_key: str = Field(..., description="Global 세션 키")
     conversation_id: str = Field(..., description="대화 ID")
     turn_id: str = Field(..., description="턴 ID")
@@ -103,14 +115,17 @@ class SessionPatchRequest(BaseModel):
 
 class SessionPatchResponse(BaseModel):
     """세션 상태 업데이트 응답"""
+
     status: str = Field(..., description="처리 상태")
     updated_at: datetime = Field(..., description="업데이트 시각")
 
 
 # ============ 세션 종료 ============
 
+
 class SessionCloseRequest(BaseModel):
     """세션 종료 요청 (MA → SM)"""
+
     global_session_key: str = Field(..., description="Global 세션 키")
     conversation_id: str = Field(..., description="대화 ID")
     close_reason: str = Field(..., description="종료 사유 (user_exit, timeout, transfer)")
@@ -119,6 +134,7 @@ class SessionCloseRequest(BaseModel):
 
 class SessionCloseResponse(BaseModel):
     """세션 종료 응답"""
+
     status: str
     closed_at: datetime
     archived_conversation_id: str
@@ -127,8 +143,10 @@ class SessionCloseResponse(BaseModel):
 
 # ============ 대화 이력 조회 ============
 
+
 class ConversationHistoryResponse(BaseModel):
     """대화 이력 조회 응답"""
+
     context_id: str = Field(..., description="Context ID")
     global_session_key: str = Field(..., description="Global 세션 키")
     conversation_id: str = Field(..., description="대화 ID")
@@ -138,8 +156,10 @@ class ConversationHistoryResponse(BaseModel):
 
 # ============ 대화 이력 저장 ============
 
+
 class ConversationTurnSaveRequest(BaseModel):
     """대화 턴 저장 요청 (MA → SM)"""
+
     global_session_key: str = Field(..., description="Global 세션 키")
     context_id: str = Field(..., description="Context ID")
     turn: ConversationTurn = Field(..., description="저장할 턴")
@@ -147,6 +167,7 @@ class ConversationTurnSaveRequest(BaseModel):
 
 class ConversationTurnSaveResponse(BaseModel):
     """대화 턴 저장 응답"""
+
     status: str
     turn_id: str
     saved_at: datetime
@@ -154,8 +175,10 @@ class ConversationTurnSaveResponse(BaseModel):
 
 # ============ 고객 프로파일 조회 ============
 
+
 class ProfileGetResponse(BaseModel):
     """고객 프로파일 조회 응답"""
+
     user_id: str
     profile: CustomerProfile
     computed_at: datetime

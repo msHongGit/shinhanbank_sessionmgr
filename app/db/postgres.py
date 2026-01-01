@@ -2,6 +2,7 @@
 Session Manager - PostgreSQL Connection (Sync)
 v3.0: 모든 연동 Sync 방식
 """
+
 from collections.abc import Generator
 
 from sqlalchemy import create_engine

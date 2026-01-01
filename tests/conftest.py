@@ -2,6 +2,7 @@
 Session Manager - Test Configuration and Fixtures (v4.0)
 Sprint 1: Mock Repository 사용
 """
+
 from datetime import UTC, datetime
 
 import pytest
@@ -44,6 +45,7 @@ def reset_mock_repositories():
 
 # ============ API Keys (호출자별) ============
 
+
 @pytest.fixture
 def agw_headers():
     """AGW API headers"""
@@ -70,6 +72,7 @@ def vdb_headers():
 
 # ============ Sample Data ============
 
+
 @pytest.fixture
 def sample_global_session_key():
     """샘플 Global 세션 키 (Client가 발급)"""
@@ -93,39 +96,29 @@ def sample_customer_profile():
     """샘플 고객 프로파일"""
     return CustomerProfile(
         user_id="user_001",
-        attributes=[
-            ProfileAttribute(key="segment", value="VIP", source_system="crm")
-        ],
+        attributes=[ProfileAttribute(key="segment", value="VIP", source_system="crm")],
         segment="VIP",
-        preferences={"language": "ko"}
+        preferences={"language": "ko"},
     )
 
 
 @pytest.fixture
 def sample_conversation_turn():
     """샘플 대화 턴"""
-    return ConversationTurn(
-        turn_id="turn_001",
-        role="user",
-        content="계좌 이체를 하고 싶어요",
-        timestamp=datetime.now(UTC)
-    )
+    return ConversationTurn(turn_id="turn_001", role="user", content="계좌 이체를 하고 싶어요", timestamp=datetime.now(UTC))
 
 
 # ============ AGW Request ============
 
+
 @pytest.fixture
 def sample_agw_session_create_request(sample_global_session_key):
     """AGW 세션 생성 요청"""
-    return {
-        "global_session_key": sample_global_session_key,
-        "user_id": "user_001",
-        "channel": "mobile",
-        "request_id": "req_001"
-    }
+    return {"global_session_key": sample_global_session_key, "user_id": "user_001", "channel": "mobile", "request_id": "req_001"}
 
 
 # ============ MA Requests ============
+
 
 @pytest.fixture
 def sample_ma_local_register_request(sample_global_session_key, sample_local_session_key):
@@ -134,7 +127,7 @@ def sample_ma_local_register_request(sample_global_session_key, sample_local_ses
         "global_session_key": sample_global_session_key,
         "local_session_key": sample_local_session_key,
         "agent_id": "agent-transfer",
-        "agent_type": "task"
+        "agent_type": "task",
     }
 
 
@@ -150,8 +143,8 @@ def sample_ma_session_patch_request(sample_global_session_key):
             "subagent_status": "continue",
             "last_agent_id": "agent-transfer",
             "last_agent_type": "task",
-            "last_response_type": "continue"
-        }
+            "last_response_type": "continue",
+        },
     }
 
 
@@ -162,32 +155,27 @@ def sample_ma_session_close_request(sample_global_session_key):
         "global_session_key": sample_global_session_key,
         "conversation_id": "conv_001",
         "close_reason": "user_exit",
-        "final_summary": "이체 완료"
+        "final_summary": "이체 완료",
     }
 
 
 @pytest.fixture
 def sample_ma_turn_save_request(sample_global_session_key, sample_context_id, sample_conversation_turn):
     """MA 대화 턴 저장 요청"""
-    return {
-        "global_session_key": sample_global_session_key,
-        "context_id": sample_context_id,
-        "turn": sample_conversation_turn.model_dump()
-    }
+    return {"global_session_key": sample_global_session_key, "context_id": sample_context_id, "turn": sample_conversation_turn.model_dump()}
 
 
 # ============ Portal Request ============
 
+
 @pytest.fixture
 def sample_portal_context_delete_request(sample_context_id):
     """Portal Context 삭제 요청"""
-    return {
-        "context_id": sample_context_id,
-        "reason": "사용자 요청"
-    }
+    return {"context_id": sample_context_id, "reason": "사용자 요청"}
 
 
 # ============ VDB Request ============
+
 
 @pytest.fixture
 def sample_vdb_batch_request():
@@ -197,15 +185,7 @@ def sample_vdb_batch_request():
         "source_system": "crm",
         "computed_at": datetime.now(UTC).isoformat(),
         "records": [
-            {
-                "user_id": "user_001",
-                "attributes": [{"key": "segment", "value": "VIP", "source_system": "crm"}],
-                "segment": "VIP"
-            },
-            {
-                "user_id": "user_002",
-                "attributes": [{"key": "segment", "value": "일반", "source_system": "crm"}],
-                "segment": "일반"
-            }
-        ]
+            {"user_id": "user_001", "attributes": [{"key": "segment", "value": "VIP", "source_system": "crm"}], "segment": "VIP"},
+            {"user_id": "user_002", "attributes": [{"key": "segment", "value": "일반", "source_system": "crm"}], "segment": "일반"},
+        ],
     }

@@ -2,6 +2,7 @@
 Session Manager - Profile Service (v4.0 - Sync)
 고객 프로파일 관리 (Sync 방식)
 """
+
 from datetime import UTC, datetime
 
 from app.repositories.base import ProfileRepositoryInterface
@@ -71,12 +72,14 @@ class ProfileService:
         profiles_to_upsert = []
         for record in request.records:
             for attr in record.attributes:
-                profiles_to_upsert.append({
-                    "user_id": record.user_id,
-                    "attribute_key": attr.key,
-                    "attribute_value": attr.value,
-                    "source_system": attr.source_system or "VDB",
-                })
+                profiles_to_upsert.append(
+                    {
+                        "user_id": record.user_id,
+                        "attribute_key": attr.key,
+                        "attribute_value": attr.value,
+                        "source_system": attr.source_system or "VDB",
+                    }
+                )
 
         try:
             processed_count = self.profile_repo.batch_upsert(profiles_to_upsert)

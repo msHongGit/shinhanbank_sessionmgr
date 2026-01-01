@@ -2,6 +2,7 @@
 Session Manager - Context Service (v4.0 - Sync)
 대화 이력 관리 (Sync 방식)
 """
+
 from datetime import UTC, datetime
 
 from app.core.exceptions import ContextNotFoundError, SessionNotFoundError
@@ -110,12 +111,8 @@ class ContextService:
             global_session_key=context.get("global_session_key", ""),
             user_id=context.get("user_id", ""),
             turn_count=len(turns),
-            created_at=datetime.fromisoformat(
-                context.get("created_at", datetime.now(UTC).isoformat())
-            ),
-            updated_at=datetime.fromisoformat(
-                context.get("last_updated_at", context.get("created_at", datetime.now(UTC).isoformat()))
-            ),
+            created_at=datetime.fromisoformat(context.get("created_at", datetime.now(UTC).isoformat())),
+            updated_at=datetime.fromisoformat(context.get("last_updated_at", context.get("created_at", datetime.now(UTC).isoformat()))),
         )
 
 

@@ -5,6 +5,7 @@ Session Manager - Repository Interfaces
 Note: Sprint 1에서는 핵심 CRUD만 정의.
       추가 메서드는 필요 시 확장.
 """
+
 from abc import ABC, abstractmethod
 
 
@@ -73,4 +74,3 @@ class ProfileRepositoryInterface(ABC):
     async def batch_upsert(self, profiles: list[dict]) -> int:
         """배치 Upsert"""
         pass
-

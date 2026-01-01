@@ -1,6 +1,7 @@
 """
 Session Manager - Configuration Settings (v3.0)
 """
+
 from functools import lru_cache
 
 from pydantic import ConfigDict
@@ -27,9 +28,9 @@ class Settings(BaseSettings):
     REDIS_MAX_CONNECTIONS: int = 10
 
     # TTL Settings
-    SESSION_CACHE_TTL: int = 3600      # 1 hour - Global Session
-    LOCAL_SESSION_TTL: int = 1800      # 30 min - Local Session
-    SESSION_MAP_TTL: int = 3600        # 1 hour - Global↔Local 매핑
+    SESSION_CACHE_TTL: int = 3600  # 1 hour - Global Session
+    LOCAL_SESSION_TTL: int = 1800  # 30 min - Local Session
+    SESSION_MAP_TTL: int = 3600  # 1 hour - Global↔Local 매핑
 
     # PostgreSQL
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/session_manager"
@@ -49,12 +50,7 @@ class Settings(BaseSettings):
     PORTAL_API_KEY: str = "portal-api-key"
     VDB_API_KEY: str = "vdb-api-key"
 
-    model_config = ConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-        extra="ignore"
-    )
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore")
 
 
 @lru_cache

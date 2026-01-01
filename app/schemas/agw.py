@@ -2,6 +2,7 @@
 Session Manager - AGW Schemas (v3.0)
 Agent GW → SM 요청/응답 스키마
 """
+
 from datetime import datetime
 from typing import Any
 
@@ -15,6 +16,7 @@ class SessionCreateRequest(BaseModel):
     초기 세션 생성 요청 (AGW → SM)
     Client가 발급한 Global Session Key를 전달받아 세션 생성
     """
+
     global_session_key: str = Field(..., description="Client가 발급한 Global 세션 키")
     user_id: str = Field(..., description="사용자 ID")
     channel: str = Field(..., description="채널 (mobile, web, kiosk)")
@@ -27,7 +29,7 @@ class SessionCreateRequest(BaseModel):
                 "global_session_key": "gsess_20250316_user_1084756",
                 "user_id": "user_1084756",
                 "channel": "mobile",
-                "device_info": {"type": "web", "browser": "Chrome"}
+                "device_info": {"type": "web", "browser": "Chrome"},
             }
         }
     )
@@ -35,6 +37,7 @@ class SessionCreateRequest(BaseModel):
 
 class SessionCreateResponse(BaseModel):
     """초기 세션 생성 응답"""
+
     global_session_key: str = Field(..., description="Global 세션 키")
     conversation_id: str = Field(..., description="대화 ID")
     context_id: str = Field(..., description="Context ID (대화 이력 식별)")
