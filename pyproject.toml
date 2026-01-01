@@ -83,6 +83,23 @@ markers = [
     "slow: Slow tests",
 ]
 
+[tool.coverage.run]
+omit = [
+    "app/db/postgres.py",
+    "app/db/redis.py",
+    "app/models/*.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
 [tool.black]
 line-length = 140
 target-version = ["py311"]
