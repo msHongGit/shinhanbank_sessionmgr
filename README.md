@@ -1,312 +1,241 @@
-# Session Manager
+# Session Manager v4.0 - Sprint 2
 
-은행 AI Agent 시스템의 세션 생명주기, Task Queue, 고객 프로파일을 관리하는 API 서비스입니다.
+은행 AI Agent 시스템의 세션 관리 서비스
 
-## 🏗️ Architecture
+> **Sprint 1**: 설계 및 아키텍처 정의  
+> **Sprint 2**: Mock Repository 기반 구현 (현재)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Clients                                   │
-│  ┌─────────┐  ┌─────────────┐  ┌────────┐  ┌─────────────────┐  │
-│  │Agent GW │  │Master Agent │  │ Portal │  │  Vertical DB    │  │
-│  └────┬────┘  └──────┬──────┘  └───┬────┘  └────────┬────────┘  │
-└───────┼──────────────┼─────────────┼────────────────┼───────────┘
-        │              │             │                │
-        ▼              ▼             ▼                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Session Manager API                           │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │  FastAPI + Pydantic                                      │    │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐    │    │
-│  │  │ Session  │ │  Task    │ │ Profile  │ │  Portal  │    │    │
-│  │  │   API    │ │   API    │ │   API    │ │   API    │    │    │
-│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘    │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                          │                                       │
-│              ┌───────────┴───────────┐                          │
-│              ▼                       ▼                          │
-│  ┌─────────────────────┐  ┌─────────────────────┐               │
-│  │       Redis         │  │    PostgreSQL       │               │
-│  │  (Cache + Queue)    │  │   (Persistence)     │               │
-│  └─────────────────────┘  └─────────────────────┘               │
-└─────────────────────────────────────────────────────────────────┘
-```
+## 🎯 Sprint 2 목표
 
-## 📁 Project Structure
+- Mock Repository 기반 In-Memory 세션 관리 구현
+- Repository Pattern + Dependency Injection 구조 확립
+- FastAPI 기반 REST API 제공
+- TDD 기반 개발 (pytest)
+- 향후 확장 가능한 구조 설계
+
+## 🏗️ 아키텍처
 
 ```
-session-manager/
-├── app/
-│   ├── __init__.py
-│   ├── main.py                 # FastAPI 앱 진입점
-│   ├── config.py               # 환경 설정
-│   ├── api/
-│   │   ├── __init__.py
-│   │   ├── deps.py             # 의존성 주입
-│   │   ├── v1/
-│   │   │   ├── __init__.py
-│   │   │   ├── router.py       # API 라우터 통합
-│   │   │   ├── sessions.py     # 세션 API
-│   │   │   ├── tasks.py        # Task Queue API
-│   │   │   ├── profiles.py     # 고객 프로파일 API
-│   │   │   └── portal.py       # Portal 관리 API
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── security.py         # 인증/인가
-│   │   └── exceptions.py       # 커스텀 예외
-│   ├── db/
-│   │   ├── __init__.py
-│   │   ├── postgres.py         # PostgreSQL 연결
-│   │   ├── redis.py            # Redis 연결
-│   │   └── repositories/       # 데이터 접근 계층
-│   │       ├── __init__.py
-│   │       ├── session_repo.py
-│   │       ├── task_repo.py
-│   │       └── profile_repo.py
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── session.py          # SQLAlchemy 모델
-│   │   ├── task.py
-│   │   └── profile.py
-│   ├── schemas/
-│   │   ├── __init__.py
-│   │   ├── session.py          # Pydantic 스키마
-│   │   ├── task.py
-│   │   ├── profile.py
-│   │   └── common.py
-│   └── services/
-│       ├── __init__.py
-│       ├── session_service.py  # 비즈니스 로직
-│       ├── task_service.py
-│       └── profile_service.py
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py             # pytest fixtures
-│   ├── test_sessions.py
-│   ├── test_tasks.py
-│   └── test_profiles.py
-├── docs/
-│   ├── PRD.md
-│   └── TDD.md
-├── scripts/
-│   ├── init_db.py              # DB 초기화 스크립트
-│   └── seed_data.py            # 테스트 데이터
-├── .env.example
-├── .gitignore
-├── Dockerfile
-├── docker-compose.yml
-├── pyproject.toml
-├── requirements.txt
-└── README.md
+┌─────────────────────────────────────────────────────────────┐
+│                        Session Manager                       │
+├─────────────────────────────────────────────────────────────┤
+│  API Layer (FastAPI)                                        │
+│    ├─ AGW API     : 초기 세션 생성                           │
+│    ├─ MA API      : 세션 조회/업데이트, Context, Profile      │
+│    ├─ Portal API  : 세션 목록 조회 (읽기전용)                │
+│    └─ Batch API   : VDB 프로파일 배치 업로드                 │
+├─────────────────────────────────────────────────────────────┤
+│  Service Layer                                              │
+│    ├─ SessionService  : 세션 관리 비즈니스 로직              │
+│    ├─ ContextService  : 대화 이력 관리                       │
+│    └─ ProfileService  : 고객 프로파일 관리                   │
+├─────────────────────────────────────────────────────────────┤
+│  Repository Layer (Sprint 2: Mock / 향후: PostgreSQL+Redis)│
+│    ├─ MockSessionRepository  : Dict 기반 세션 저장소        │
+│    ├─ MockContextRepository  : Dict 기반 Context 저장소     │
+│    └─ MockProfileRepository  : Dict 기반 Profile 저장소     │
+│  📌 확장 가능: PostgreSQL/Redis Repository로 교체 가능      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## 🚀 Quick Start
+## 📁 디렉토리 구조
 
-### Prerequisites
+```
+app/
+  api/v1/
+    agw/        # Agent GW API
+    batch/      # Batch API (VDB)
+  services/     # 비즈니스 로직
+  repositories/ # Repository 인터페이스 및 구현체
+    mock/       # Mock Repository (Sprint 2)
+    postgres/   # PostgreSQL Repository (Sprint 3+)
+    redis/      # Redis Repository (Sprint 3+)
+  schemas/      # Pydantic 스키마
+  models/       # SQLAlchemy 모델 (Sprint 3+)
+  core/         # 예외 처리
+  db/           # DB 연결 (Sprint 3
+  db/           # DB 연결 (Sprint 2+)
+tests/          # pytest 테스트
+```
 
-- Python 3.11+
-- Docker & Docker Compose
-- Redis
-- PostgreSQL
+## 🚀 시작하기
 
-### 1. Clone & Setup
+### 1. 환경 설정
 
 ```bash
-# Clone repository
-git clone <repository-url>
-cd session-manager
+# uv 환경 구성
+uv sync --all-extras
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+# 서버 실행
+uv run uvicorn app.main:app --port 8080 --reload
 ```
 
-### 2. Environment Variables
+### 2. API 문서 확인
+
+```
+http://localhost:8080/api/v1/docs
+```
+
+### 3. 테스트 실행
 
 ```bash
-# Copy example env file
-cp .env.example .env
+# 전체 테스트
+uv run pytest tests/ -v
 
-# Edit .env with your settings
+# 데모 시나리오 테스트 (Sprint 2 데모용)
+uv run pytest tests/test_demo_scenario.py -v -s
+
+# API별 테스트
+uv run pytest tests/test_agw_api.py -v
+uv run pytest tests/test_ma_api.py -v
+uv run pytest tests/test_batch_api.py -v
+
+# 통합 테스트
+uv run pytest tests/test_integration.py -v
 ```
 
-### 3. Run with Docker Compose (Recommended)
+> **데모 시나리오 테스트**: `tests/test_demo_scenario.py`는 Sprint 2 데모에서 사용되는 7개 API만 순차적으로 테스트합니다.
+> 상세 내용은 [DEMO_SCENARIO_V2.md](docs/DEMO_SCENARIO_V2.md) 참고
 
-```bash
-# Start all services (API + Redis + PostgreSQL)
-docker-compose up -d
+## 🔑 API Key 구성
 
-# Check logs
-docker-compose logs -f api
+각 호출자별로 별도 API Key 사용:
 
-# Stop services
-docker-compose down
-```
+| 호출자 | 헤더 | API Key |
+|--------|------|---------|
+| AGW | X-API-Key | agw-api-key |
+| MA | X-API-Key | ma-api-key |
+| Portal | X-API-Key | portal-api-key |
+| VDB | X-API-Key | vdb-api-key |
 
-### 4. Run Locally (Development)
+> `.env` 파일로 2 완료 현황
 
-```bash
-# Start Redis and PostgreSQL separately
-docker-compose up -d redis postgres
+✅ **Repository Pattern**
+- ABC 인터페이스 정의 (base.py)
+- Mock 구현체 (Singleton, Dict 저장소)
+- DI를 통한 Mock/Real Repository 전환 가능
+- **모든 메서드 Sync 방식** (Sprint 2 기준)
 
-# Run FastAPI with hot reload
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+✅ **Service Layer**
+- SessionService (v4.0 - Sync)
+- ContextService (v4.0 - Sync)
+- ProfileService (v4.0 - Sync)
+- Repository 의존성 주입
 
-### 5. Access API Documentation
+✅ **API Layer**
+- 3개 호출자별 API 분리 (AGW, MA, Batch)
+- API Key 기반 인증
+- **모든 핸들러 Sync 함수**
+- FastAPI 예외 처리
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-- OpenAPI JSON: http://localhost:8000/openapi.json
+✅ **테스트**
+- 14개 테스트 전체 통과
+- AGW, MA, Batch, Portal API 테스트
+- Integration 테스트 (세션 생명주기)
+- **데모 시나리오 테스트** (`test_demo_scenario.py` - 7개 API 순차 실행)
+- Mock Repository 기반 격리 테스트
 
-## 📡 API Endpoints
+✅ **시연 준비**
+- API 정의서 (docs/DEMO_API_SPEC.md)
+- 시나리오 플로우 (docs/DEMO_SCENARIO.md)
+- SubAgent 상태 전이 로직
 
-### Session Lifecycle
+## 🎯 Sprint 3 계획 (향후 확장)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/sessions` | 초기 세션 생성 |
-| GET | `/api/v1/sessions/resolve` | 세션 조회/생성 |
-| PATCH | `/api/v1/sessions/{session_id}` | 세션 상태 업데이트 |
-| POST | `/api/v1/sessions/{session_id}/close` | 세션 종료 |
+### 1. PostgreSQL Repository 구현
+- SessionRepository (SQLAlchemy Sync)
+- ContextRepository (SQLAlchemy Sync)
+- ProfileRepository (SQLAlchemy Sync)
+- Alembic 마이그레이션
 
-### Task Queue
+### 2. Redis Repository 구현
+- 세션 캐싱 (Sync - redis-py)
+- Local 세션 매핑 (Global ↔ Local)
+- Hybrid Repository (Redis + PostgreSQL)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/tasks` | Task 적재 |
-| GET | `/api/v1/tasks/{task_id}/status` | Task 상태 조회 |
-| GET | `/api/v1/tasks/{task_id}/result` | Task 결과 조회 |
+### 3. 고급 기능
+- Task Queue 관리 (Redis Sorted Set)
+- 세션 만료 처리 (스케줄러)
+- 실시간 이벤트 스트리밍 (SSE/WebSocket)
 
-### Customer Profile
+### 4. CI/CD 파이프라인
+- GitHub Actions
+- Az확장 가능한 아키텍처
+- **Sprint 2**: Mock Repository로 빠른 검증
+- **Sprint 3+**: PostgreSQL/Redis로 확장 가능
+- Repository Pattern 덕분에 구현체 교체 용이
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/profiles/{user_id}` | 프로파일 조회 |
-| POST | `/api/v1/profiles/batch` | 프로파일 배치 업로드 |
+### Sync vs Async
+- **현재 (Sprint 2)**: 외부 연동이 모두 Sync이므로 Sync로 구현
+- **향후 확장**: 필요시 Async로 전환 가능 (Repository Pattern 덕분에 쉽게 교체)
+- FastAPI는 Sync/Async 모두 완벽 지원
 
-### Portal Management
+### Repository Pattern
+- ABC 인터페이스로 Mock/Real 전환 용이
+- Sprint 2: Mock Repository (In-Memory)
+- Sprint 3+: PostgreSQL/Redis Repository (Sync)
+- 구현체만 교체하면 되므로 Service/API Layer는 변경 없음
+### Sync vs Async
+- **Sprint 1**: 외부 연동이 모두 Sync이므로 Sync로 구현
+- **향후 확장**: 필요시 Async로 전환 가능 (Repository Pattern 덕분에 쉽게 교체 가능)
+- FastAPI는 Sync/Async 모두 완벽 지원
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/portal/conversations` | 대화 목록 조회 |
-| GET | `/api/v1/portal/conversations/{id}` | 대화 상세 조회 |
-| DELETE | `/api/v1/portal/conversations/{id}` | 대화 이력 삭제 |
+### Repository Pattern
+- ABC 인터페이스로 Mock/Real 전환 용이
+- Sprint 1: Mock Repository (In-Memory)
+- Sprint 2: PostgreSQL/Redis Repository (Sync)
 
-## 🧪 Testing
+## 🛠️ 기술 스택
 
-```bash
-# Run all tests
-pytest
+- **Web Framework**: FastAPI 0.109.0
+- **Package Manager**: uv
+- **ORM**: SQLAlchemy 2.0.25 (Sprint 2+)
+- **Cache**: Redis 5.0.1 (Sprint 2+)
+- **Testing**: pytest 9.0.2
+- **Linting**: Ruff 0.14.10
+- **Python**: 3.11+
 
-# Run with coverage
-pytest --cov=app --cov-report=html
+## 📝 Coding Conventions
 
-# Run specific test file
-pytest tests/test_sessions.py -v
+- 파일명: snake_case
+- 클래스명: PascalCase
+- 함수명: snake_case
+- 상수명: UPPER_CASE
+- 코드 라인 길이: 140자 이하
+- PEP8 준수 (Ruff로 강제)
 
-# Run with markers
-pytest -m "unit"
-pytest -m "integration"
-```
+## � Sprint 2 API 필수값 정리
 
-## 🐳 Docker Commands
+### 데모에서 사용하는 7개 API 필수/옵션 필드
 
-```bash
-# Build image
-docker build -t session-manager:latest .
+1. **POST /api/v1/agw/sessions** (세션 생성)
+   - 필수: `global_session_key`, `user_id`, `channel`
+   - 옵션: `request_id`, `device_info`
 
-# Run container
-docker run -d -p 8000:8000 --env-file .env session-manager:latest
+2. **GET /api/v1/ma/sessions/resolve** (세션 조회)
+   - 필수: `global_session_key` (query)
+   - 옵션: `channel`, `agent_type`, `agent_id`
 
-# View logs
-docker logs -f <container_id>
+3. **GET /api/v1/ma/profiles/{user_id}** (프로파일 조회)
+   - 필수: `user_id` (path)
 
-# Enter container
-docker exec -it <container_id> /bin/bash
-```
+4. **POST /api/v1/ma/context/turn** (대화 턴 저장)
+   - 필수: `global_session_key`, `context_id`, `turn`
+   - turn 필수 필드: `turn_id`, `role`, `content`, `timestamp`
 
-## 📊 Monitoring
+5. **GET /api/v1/ma/context/history** (대화 이력 조회)
+   - 필수: `global_session_key`, `context_id` (query)
 
-### Health Check
+6. **PATCH /api/v1/ma/sessions/state** (세션 상태 업데이트)
+   - 필수: `global_session_key`, `conversation_id`, `turn_id`, `session_state`, `state_patch`
+   - state_patch: 객체는 필수, 내부 필드는 모두 옵션
 
-```bash
-curl http://localhost:8000/health
-```
+7. **POST /api/v1/ma/sessions/close** (세션 종료)
+   - 필수: `global_session_key`, `conversation_id`, `close_reason`
+   - 옵션: `final_summary`
 
-### Metrics (Prometheus format)
+> 상세 API 명세는 `/api/v1/docs` (Swagger UI) 참고
 
-```bash
-curl http://localhost:8000/metrics
-```
+## �📄 라이센스
 
-## 🔧 Configuration
-
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `APP_ENV` | 환경 (dev/staging/prod) | `dev` |
-| `DEBUG` | 디버그 모드 | `true` |
-| `API_PREFIX` | API prefix | `/api/v1` |
-| `REDIS_URL` | Redis 연결 URL | `redis://localhost:6379` |
-| `DATABASE_URL` | PostgreSQL 연결 URL | `postgresql+asyncpg://...` |
-| `SECRET_KEY` | JWT 시크릿 키 | - |
-| `SESSION_TTL` | 세션 TTL (초) | `3600` |
-
-## 📝 Development Guidelines
-
-### Code Style
-
-```bash
-# Format code
-black app tests
-isort app tests
-
-# Lint
-ruff check app tests
-mypy app
-```
-
-### Commit Convention
-
-```
-feat: 새로운 기능 추가
-fix: 버그 수정
-docs: 문서 변경
-style: 코드 포맷팅
-refactor: 코드 리팩토링
-test: 테스트 추가/수정
-chore: 빌드/설정 변경
-```
-
-### Branch Strategy
-
-- `main`: 프로덕션 배포
-- `develop`: 개발 통합
-- `feature/*`: 기능 개발
-- `fix/*`: 버그 수정
-
-## 📚 Documentation
-
-- [PRD (Product Requirements Document)](docs/PRD.md)
-- [TDD (Technical Design Document)](docs/TDD.md)
-- [API Specification](http://localhost:8000/docs)
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
-
-## 📄 License
-
-This project is proprietary and confidential.
-
-## 👥 Team
-
-- Backend Team - API Development
-- Infrastructure Team - Deployment & Monitoring
+Proprietary - Shinhan Bank

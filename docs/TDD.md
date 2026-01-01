@@ -1,667 +1,710 @@
-# Session Manager - Technical Design Document (TDD)
+# Session Manager - TDD 전략 / Test-Driven Development Strategy
 
-## 1. 개요
+> **🎯 핵심 원칙: Session Manager는 TDD(Test-Driven Development) 방식으로 개발됩니다.**
 
-### 1.1 문서 목적
-본 문서는 Session Manager의 기술적 설계를 상세히 기술합니다.
-
-### 1.2 범위
-- 시스템 아키텍처
-- 데이터 모델
-- API 상세 설계
-- 인프라 구성
+모든 핵심 기능은 **Red-Green-Refactor 사이클**을 따라 개발되며, 테스트 코드가 설계와 문서 역할을 동시에 수행합니다.
 
 ---
 
-## 2. 시스템 아키텍처
-
-### 2.1 전체 구조
-
-```
-                                    ┌─────────────────┐
-                                    │   Load Balancer │
-                                    └────────┬────────┘
-                                             │
-                    ┌────────────────────────┼────────────────────────┐
-                    │                        │                        │
-             ┌──────▼──────┐          ┌──────▼──────┐          ┌──────▼──────┐
-             │   SM API    │          │   SM API    │          │   SM API    │
-             │ Instance 1  │          │ Instance 2  │          │ Instance N  │
-             └──────┬──────┘          └──────┬──────┘          └──────┬──────┘
-                    │                        │                        │
-                    └────────────────────────┼────────────────────────┘
-                                             │
-                    ┌────────────────────────┴────────────────────────┐
-                    │                                                  │
-             ┌──────▼──────┐                                   ┌──────▼──────┐
-             │    Redis    │                                   │ PostgreSQL  │
-             │   Cluster   │                                   │  Primary    │
-             │             │                                   │      │      │
-             │ ┌─────────┐ │                                   │      ▼      │
-             │ │ Session │ │                                   │  Replica    │
-             │ │  Cache  │ │                                   └─────────────┘
-             │ ├─────────┤ │
-             │ │  Task   │ │
-             │ │  Queue  │ │
-             │ └─────────┘ │
-             └─────────────┘
-```
-
-### 2.2 컴포넌트 설명
-
-| 컴포넌트 | 역할 | 기술 |
-|----------|------|------|
-| SM API | REST API 서버 | FastAPI |
-| Redis | 세션 캐시, Task Queue | Redis 7.x |
-| PostgreSQL | 영속 저장소 | PostgreSQL 15 |
-
-### 2.3 통신 방식
-
-| 구간 | 프로토콜 | 특성 |
-|------|----------|------|
-| Client → SM | HTTP/HTTPS | Sync, REST |
-| SM → Redis | TCP | Sync, Direct |
-| SM → PostgreSQL | TCP | Async, Connection Pool |
+## 📋 목차
+1. [TDD 적용 현황](#tdd-적용-현황)
+2. [테스트 피라미드](#테스트-피라미드)
+3. [테스트 구조](#테스트-구조)
+4. [모킹 전략](#모킹-전략)
+5. [레이어별 테스트 전략](#레이어별-테스트-전략)
+6. [테스트 실행 전략](#테스트-실행-전략)
+7. [CI/CD 통합](#cicd-통합)
 
 ---
 
-## 3. 데이터 모델
+## 🚀 TDD 적용 현황
 
-### 3.1 PostgreSQL Schema
+### ✅ TDD로 개발된 주요 기능들
 
-#### sessions 테이블
-```sql
-CREATE TABLE sessions (
-    session_id VARCHAR(50) PRIMARY KEY,
-    user_id VARCHAR(50) NOT NULL,
-    channel VARCHAR(20) NOT NULL,
-    session_key_scope VARCHAR(10) NOT NULL,  -- global | local
-    session_key_value VARCHAR(100) NOT NULL,
-    session_state VARCHAR(10) NOT NULL DEFAULT 'start',  -- start | talk | end
-    started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE,
-    closed_at TIMESTAMP WITH TIME ZONE,
-    close_reason VARCHAR(20),  -- user_exit | timeout | transfer
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    CONSTRAINT chk_session_state CHECK (session_state IN ('start', 'talk', 'end')),
-    CONSTRAINT chk_close_reason CHECK (close_reason IN ('user_exit', 'timeout', 'transfer'))
-);
+Session Manager의 **핵심 기능들은 TDD 방식으로 개발**됩니다:
 
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX idx_sessions_session_key ON sessions(session_key_scope, session_key_value);
-CREATE INDEX idx_sessions_state ON sessions(session_state);
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
+| 기능 | 서비스 | 테스트 파일 | 상태 |
+|------|--------|------------|------|
+| 세션 생성 | `session_service.create_session` | `test_agw_api.py` | ✅ 완료 |
+| 세션 조회 | `session_service.resolve_session` | `test_ma_api.py` | ✅ 완료 |
+| Local 세션 등록/조회 | `session_service.register_local_session` | `test_ma_api.py` | ✅ 완료 |
+| 세션 상태 업데이트 | `session_service.patch_session_state` | `test_ma_api.py` | ✅ 완료 |
+| 세션 종료 | `session_service.close_session` | `test_ma_api.py` | ✅ 완료 |
+| 대화 이력 조회 | `context_service.get_conversation_history` | `test_ma_api.py` | ✅ 완료 |
+| 대화 턴 저장 | `context_service.save_conversation_turn` | `test_ma_api.py` | ✅ 완료 |
+| 프로파일 조회 | `profile_service.get_profile` | `test_ma_api.py` | ⚠️ Mock |
+| 세션 목록 조회 | Portal API | `test_portal_api.py` | ✅ 완료 |
+| Context 삭제 | `context_service.delete_context` | `test_portal_api.py` | ✅ 완료 |
+| 프로파일 배치 업로드 | `profile_service.batch_upload` | `test_batch_api.py` | ⚠️ Mock |
+
+---
+
+## 🎯 테스트 피라미드
+
+```
+           /\
+          /  \
+         / E2E \        ← 소수 (10-20%)
+        /--------\         전체 API 플로우
+       / Integration \  ← 중간 (30-40%)
+      /--------------\     Redis + Service 연동
+     /   Unit Tests    \ ← 다수 (40-60%)
+    /------------------\   순수 비즈니스 로직
 ```
 
-#### session_status 테이블
-```sql
-CREATE TABLE session_status (
-    id BIGSERIAL PRIMARY KEY,
-    session_id VARCHAR(50) NOT NULL REFERENCES sessions(session_id),
-    conversation_id VARCHAR(50) NOT NULL,
-    turn_id VARCHAR(50),
-    conversation_status VARCHAR(10) NOT NULL DEFAULT 'start',
-    task_queue_status VARCHAR(10) NOT NULL DEFAULT 'null',  -- null | notnull
-    subagent_status VARCHAR(20) NOT NULL DEFAULT 'undefined',  -- undefined | continue | end
-    action_owner VARCHAR(50),
-    reference_information JSONB,
-    cushion_message TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    CONSTRAINT chk_conversation_status CHECK (conversation_status IN ('start', 'talk', 'end')),
-    CONSTRAINT chk_task_queue_status CHECK (task_queue_status IN ('null', 'notnull')),
-    CONSTRAINT chk_subagent_status CHECK (subagent_status IN ('undefined', 'continue', 'end'))
-);
+### 1. **Unit Tests (40-60%)**
+- **대상**: Service 클래스의 순수 로직, 유틸리티 함수
+- **목표**: 빠른 피드백 (< 1초)
+- **예시**: ID 생성, 상태 전이 로직, 유효성 검증
 
-CREATE INDEX idx_session_status_session_id ON session_status(session_id);
-CREATE INDEX idx_session_status_conversation_id ON session_status(conversation_id);
-CREATE UNIQUE INDEX idx_session_status_unique ON session_status(session_id, conversation_id);
+### 2. **Integration Tests (30-40%)**
+- **대상**: Service + Redis, API 엔드포인트
+- **목표**: 컴포넌트 간 통합 검증
+- **예시**: 세션 생성 → Redis 저장 → 조회 플로우
+
+### 3. **E2E Tests (10-20%)**
+- **대상**: 전체 세션 라이프사이클
+- **목표**: 실제 사용 시나리오 검증
+- **예시**: AGW 세션 생성 → MA 조회 → 상태 업데이트 → 종료
+
+---
+
+## 📁 테스트 구조
+
 ```
-
-#### customer_profiles 테이블
-```sql
-CREATE TABLE customer_profiles (
-    id BIGSERIAL PRIMARY KEY,
-    user_id VARCHAR(50) NOT NULL,
-    context_id VARCHAR(50),
-    attribute_key VARCHAR(100) NOT NULL,
-    attribute_value TEXT,
-    source_system VARCHAR(50) NOT NULL,
-    computed_at TIMESTAMP WITH TIME ZONE,
-    valid_from DATE,
-    valid_to DATE,
-    batch_period VARCHAR(10),  -- D | W | M
-    permission_scope VARCHAR(100),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    CONSTRAINT uq_profile_attribute UNIQUE (user_id, attribute_key)
-);
-
-CREATE INDEX idx_profiles_user_id ON customer_profiles(user_id);
-CREATE INDEX idx_profiles_source ON customer_profiles(source_system);
-CREATE INDEX idx_profiles_valid ON customer_profiles(valid_from, valid_to);
-```
-
-#### conversation_history 테이블
-```sql
-CREATE TABLE conversation_history (
-    id BIGSERIAL PRIMARY KEY,
-    session_id VARCHAR(50) NOT NULL REFERENCES sessions(session_id),
-    conversation_id VARCHAR(50) NOT NULL,
-    turn_id VARCHAR(50) NOT NULL,
-    role VARCHAR(20) NOT NULL,  -- user | assistant | system
-    content_masked TEXT,
-    outcome VARCHAR(20),  -- normal | fallback | continue
-    subagent_status VARCHAR(20),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    CONSTRAINT chk_role CHECK (role IN ('user', 'assistant', 'system'))
-);
-
-CREATE INDEX idx_history_session_id ON conversation_history(session_id);
-CREATE INDEX idx_history_conversation_id ON conversation_history(conversation_id);
-CREATE INDEX idx_history_created_at ON conversation_history(created_at);
-```
-
-### 3.2 Redis Data Structure
-
-#### Session Cache
-```
-Key: session:{session_id}
-Type: Hash
-TTL: 3600 (1시간)
-
-Fields:
-  - user_id: string
-  - channel: string
-  - session_state: string (start|talk|end)
-  - conversation_id: string
-  - conversation_status: string
-  - task_queue_status: string (null|notnull)
-  - subagent_status: string (undefined|continue|end)
-  - action_owner: string
-  - last_event: json string
-  - expires_at: timestamp
-  - updated_at: timestamp
-```
-
-#### Task Queue
-```
-Key: task_queue:{session_id}
-Type: Sorted Set (priority 기반 정렬)
-Score: priority (낮을수록 높은 우선순위)
-
-Member: JSON string
-{
-  "task_id": "task_3001",
-  "intent": "이체내역_확인",
-  "priority": 1,
-  "status": "pending|in_progress|completed|failed",
-  "task_payload": {...},
-  "created_at": "2025-03-16T08:40:06Z"
-}
-```
-
-#### Task Status
-```
-Key: task:{task_id}
-Type: Hash
-TTL: 86400 (24시간)
-
-Fields:
-  - session_id: string
-  - task_status: string (pending|in_progress|completed|failed)
-  - progress: int (0-100)
-  - outcome: string (normal|fallback|continue)
-  - response_text: string
-  - result_payload: json string
-  - created_at: timestamp
-  - updated_at: timestamp
+tests/
+├── unit/                          # 단위 테스트 (TODO)
+│   ├── services/
+│   │   ├── test_session_service.py
+│   │   ├── test_context_service.py
+│   │   └── test_profile_service.py
+│   └── utils/
+│       └── test_id_generator.py
+│
+├── integration/                   # 통합 테스트 (TODO)
+│   ├── test_redis_integration.py
+│   └── test_postgres_integration.py
+│
+├── api/                           # API 테스트 (현재)
+│   ├── test_agw_api.py            # AGW API 테스트
+│   ├── test_ma_api.py             # MA API 테스트
+│   ├── test_portal_api.py         # Portal API 테스트
+│   └── test_batch_api.py          # Batch API 테스트
+│
+├── e2e/                           # E2E 테스트 (TODO)
+│   ├── test_session_lifecycle.py
+│   └── test_multiuser_scenario.py
+│
+├── conftest.py                    # pytest 공통 fixtures
+└── test_integration.py            # 통합 테스트
 ```
 
 ---
 
-## 4. API 상세 설계
+## 🎭 모킹 전략
 
-### 4.1 세션 생명주기 API
+### 1. **Redis 모킹**
 
-#### POST /api/v1/sessions (CreateInitialSession)
+```python
+# conftest.py
+@pytest.fixture
+def mock_redis():
+    """Redis 클라이언트 모킹"""
+    from unittest.mock import MagicMock
+    
+    redis_mock = MagicMock()
+    redis_mock.hgetall.return_value = {}
+    redis_mock.hset.return_value = True
+    redis_mock.delete.return_value = 1
+    return redis_mock
 
-**Request:**
-```json
-{
-  "user_id": "user_1084756",
-  "channel": "mobile",
-  "session_key": {
-    "scope": "global",
-    "key": "user_1084756_mobile"
-  },
-  "request_id": "req_20250316_001"
-}
+# 사용 예시
+@patch('app.services.session_service.get_redis_client')
+def test_create_session(self, mock_redis, client, agw_headers):
+    redis_mock = MagicMock()
+    redis_mock.hgetall.return_value = {}  # 기존 세션 없음
+    mock_redis.return_value = redis_mock
+    
+    response = client.post("/api/v1/agw/sessions", ...)
+    assert response.status_code == 201
 ```
 
-**Response (201 Created):**
-```json
-{
-  "session_id": "sess_20250316_0019",
-  "conversation_id": "conv_20250316_0019_001",
-  "session_state": "start",
-  "expires_at": "2025-03-16T09:40:06Z",
-  "policy_profile_ref": "policy_default"
-}
+### 2. **PostgreSQL 모킹**
+
+```python
+@pytest.fixture
+def mock_db_session():
+    """SQLAlchemy 세션 모킹"""
+    from unittest.mock import MagicMock
+    
+    session = MagicMock()
+    session.query.return_value.filter.return_value.first.return_value = None
+    return session
 ```
 
-**Flow:**
-```
-1. session_key로 Redis 캐시 조회
-2. 캐시 히트 & 미만료 → 기존 세션 반환
-3. 캐시 미스 → PostgreSQL 조회
-4. DB 존재 & 미만료 → 캐시 업데이트 후 반환
-5. 없거나 만료 → 새 세션 생성 (DB + 캐시)
-```
+### 3. **외부 서비스 모킹**
 
-#### GET /api/v1/sessions/resolve (ResolveSession)
-
-**Request:**
-```
-GET /api/v1/sessions/resolve?session_key_scope=global&session_key_value=user_1084756_mobile&channel=mobile
-```
-
-**Response (200 OK):**
-```json
-{
-  "session_id": "sess_20250316_0019",
-  "conversation_id": "conv_20250316_0019_001",
-  "session_state": "talk",
-  "is_first_call": false,
-  "task_queue_status": "notnull",
-  "subagent_status": "continue",
-  "last_event": {
-    "event_type": "TASK_COMPLETED",
-    "task_id": "task_3001",
-    "subagent_id": "agent-account-inquiry",
-    "updated_at": "2025-03-16T08:40:08Z"
-  },
-  "customer_profile_ref": "profile_user_1084756"
-}
-```
-
-#### PATCH /api/v1/sessions/{session_id} (PatchSessionState)
-
-**Request:**
-```json
-{
-  "conversation_id": "conv_20250316_0019_001",
-  "turn_id": "turn_003",
-  "session_state": "talk",
-  "state_patch": {
-    "subagent_status": "continue",
-    "action_owner": "master-agent",
-    "reference_information": {
-      "intent": "이체내역_확인",
-      "confidence": 0.95
-    },
-    "cushion_message": "이체 내역을 확인하고 있습니다."
-  }
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "status": "success",
-  "updated_at": "2025-03-16T08:40:08Z"
-}
-```
-
-**Flow:**
-```
-1. Redis 캐시 업데이트 (동기)
-2. PostgreSQL 스냅샷 저장 (비동기 - background task)
-3. 응답 반환
-```
-
-#### POST /api/v1/sessions/{session_id}/close (CloseSession)
-
-**Request:**
-```json
-{
-  "conversation_id": "conv_20250316_0019_001",
-  "close_reason": "user_exit",
-  "final_summary": "이체 내역 조회 완료"
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "status": "success",
-  "closed_at": "2025-03-16T08:45:00Z",
-  "archived_conversation_id": "arch_conv_20250316_0019_001"
-}
-```
-
-### 4.2 Task Queue API
-
-#### POST /api/v1/tasks (EnqueueTask)
-
-**Request:**
-```json
-{
-  "session_id": "sess_20250316_0019",
-  "conversation_id": "conv_20250316_0019_001",
-  "turn_id": "turn_003",
-  "intent": "이체내역_확인",
-  "priority": 1,
-  "session_state": "talk",
-  "task_payload": {
-    "masked": true,
-    "data": {
-      "query": "이전 내역을 확인하고 싶어요",
-      "skill": "계좌_거래_기록확인"
+```python
+@pytest.fixture
+def mock_profile_client():
+    """프로파일 서비스 모킹 (VDB 연동)"""
+    from unittest.mock import MagicMock
+    
+    client = MagicMock()
+    client.get_profile.return_value = {
+        "user_id": "user_001",
+        "segment": "VIP"
     }
-  }
-}
-```
-
-**Response (201 Created):**
-```json
-{
-  "status": "accepted",
-  "task_id": "task_3001"
-}
-```
-
-#### GET /api/v1/tasks/{task_id}/status (GetTaskStatus)
-
-**Response (200 OK):**
-```json
-{
-  "task_id": "task_3001",
-  "task_status": "in_progress",
-  "progress": 50,
-  "updated_at": "2025-03-16T08:40:08Z"
-}
-```
-
-#### GET /api/v1/tasks/{task_id}/result (GetTaskResult)
-
-**Response (200 OK):**
-```json
-{
-  "task_id": "task_3001",
-  "task_status": "completed",
-  "outcome": "normal",
-  "response_text": "최근 이체 내역을 조회했습니다.",
-  "result_payload": {
-    "transactions": [
-      {"date": "2025-03-15", "amount": 50000, "type": "transfer_out"}
-    ]
-  }
-}
+    return client
 ```
 
 ---
 
-## 5. 서비스 레이어 설계
+## 🔬 레이어별 테스트 전략
 
-### 5.1 SessionService
+### 1. **API Layer Tests**
 
-```python
-class SessionService:
-    def __init__(
-        self,
-        redis_client: Redis,
-        session_repo: SessionRepository,
-        status_repo: SessionStatusRepository
-    ):
-        self.redis = redis_client
-        self.session_repo = session_repo
-        self.status_repo = status_repo
-    
-    async def create_session(self, req: SessionCreateRequest) -> SessionResponse:
-        """초기 세션 생성"""
-        # 1. 기존 세션 확인
-        existing = await self._get_cached_session(req.session_key)
-        if existing and not self._is_expired(existing):
-            return existing
-        
-        # 2. 새 세션 생성
-        session = Session(
-            session_id=self._generate_session_id(),
-            user_id=req.user_id,
-            channel=req.channel,
-            session_key_scope=req.session_key.scope,
-            session_key_value=req.session_key.key,
-            session_state="start",
-            expires_at=datetime.utcnow() + timedelta(hours=1)
-        )
-        
-        # 3. DB 저장
-        await self.session_repo.create(session)
-        
-        # 4. 캐시 저장
-        await self._cache_session(session)
-        
-        return SessionResponse.from_model(session)
-    
-    async def resolve_session(self, req: SessionResolveRequest) -> SessionResolveResponse:
-        """세션 조회/생성"""
-        # 1. 캐시 조회
-        cached = await self._get_cached_session(req.session_key)
-        if cached:
-            status = await self._get_cached_status(cached.session_id)
-            return self._build_resolve_response(cached, status)
-        
-        # 2. DB 조회
-        session = await self.session_repo.find_by_key(
-            req.session_key.scope, 
-            req.session_key.key
-        )
-        
-        # 3. 없으면 생성
-        if not session:
-            session = await self.create_session(...)
-        
-        # 4. 캐시 업데이트
-        await self._cache_session(session)
-        
-        return self._build_resolve_response(session, status)
-    
-    async def patch_session_state(
-        self, 
-        session_id: str, 
-        req: SessionPatchRequest
-    ) -> SessionPatchResponse:
-        """세션 상태 업데이트"""
-        # 1. Redis 업데이트 (동기)
-        await self._update_cached_status(session_id, req.state_patch)
-        
-        # 2. DB 스냅샷 저장 (비동기)
-        background_tasks.add_task(
-            self._save_status_snapshot, 
-            session_id, 
-            req
-        )
-        
-        return SessionPatchResponse(
-            status="success",
-            updated_at=datetime.utcnow()
-        )
-```
-
-### 5.2 TaskService
+#### A. AGW API 테스트
 
 ```python
-class TaskService:
-    def __init__(self, redis_client: Redis):
-        self.redis = redis_client
+# tests/test_agw_api.py
+class TestAGWSessionCreate:
+    """AGW 세션 생성 테스트"""
     
-    async def enqueue_task(self, req: TaskEnqueueRequest) -> TaskEnqueueResponse:
-        """Task Queue에 작업 적재"""
-        task_id = self._generate_task_id()
+    @patch('app.services.session_service.get_redis_client')
+    def test_create_new_session(self, mock_redis, client, agw_headers):
+        """새 세션 생성 성공"""
+        redis_mock = MagicMock()
+        redis_mock.hgetall.return_value = {}
+        mock_redis.return_value = redis_mock
         
-        task = {
-            "task_id": task_id,
-            "session_id": req.session_id,
-            "intent": req.intent,
-            "priority": req.priority,
-            "status": "pending",
-            "task_payload": req.task_payload.dict(),
-            "created_at": datetime.utcnow().isoformat()
+        response = client.post(
+            "/api/v1/agw/sessions",
+            json={
+                "global_session_key": "gsess_001",
+                "user_id": "user_001",
+                "channel": "mobile"
+            },
+            headers=agw_headers
+        )
+        
+        assert response.status_code == 201
+        data = response.json()
+        assert data["is_new"] is True
+        assert "conversation_id" in data
+        assert "context_id" in data
+    
+    @patch('app.services.session_service.get_redis_client')
+    def test_return_existing_session(self, mock_redis, client, agw_headers):
+        """기존 유효 세션 반환"""
+        redis_mock = MagicMock()
+        redis_mock.hgetall.return_value = {
+            "global_session_key": "gsess_001",
+            "conversation_id": "conv_001",
+            "context_id": "ctx_001",
+            "session_state": "talk",
+            "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat()
         }
+        mock_redis.return_value = redis_mock
         
-        # Sorted Set에 추가 (priority를 score로)
-        await self.redis.zadd(
-            f"task_queue:{req.session_id}",
-            {json.dumps(task): req.priority}
-        )
+        response = client.post("/api/v1/agw/sessions", ...)
         
-        # Task 상태 Hash 저장
-        await self.redis.hset(
-            f"task:{task_id}",
-            mapping={
-                "session_id": req.session_id,
-                "task_status": "pending",
-                "progress": 0,
-                "created_at": datetime.utcnow().isoformat()
-            }
-        )
-        await self.redis.expire(f"task:{task_id}", 86400)  # 24시간 TTL
-        
-        return TaskEnqueueResponse(status="accepted", task_id=task_id)
+        assert response.status_code == 201
+        assert response.json()["is_new"] is False
     
-    async def get_task_status(self, task_id: str) -> TaskStatusResponse:
-        """Task 상태 조회"""
-        data = await self.redis.hgetall(f"task:{task_id}")
-        if not data:
-            raise TaskNotFoundError(task_id)
+    def test_unauthorized_without_api_key(self, client):
+        """API Key 없이 호출 시 401"""
+        response = client.post("/api/v1/agw/sessions", json={...})
+        assert response.status_code == 401
+    
+    def test_forbidden_with_wrong_api_key(self, client, ma_headers):
+        """다른 호출자 API Key로 호출 시 403"""
+        response = client.post("/api/v1/agw/sessions", json={...}, headers=ma_headers)
+        assert response.status_code == 403
+```
+
+#### B. MA API 테스트
+
+```python
+# tests/test_ma_api.py
+class TestMASessionResolve:
+    """MA 세션 조회 테스트"""
+    
+    @patch('app.services.session_service.get_redis_client')
+    def test_resolve_session_success(self, mock_redis, client, ma_headers):
+        """세션 조회 성공"""
+        # Given
+        redis_mock = MagicMock()
+        redis_mock.hgetall.return_value = {
+            "global_session_key": "gsess_001",
+            "session_state": "talk",
+            "subagent_status": "continue"
+        }
+        redis_mock.zcard.return_value = 2  # Task Queue 있음
+        mock_redis.return_value = redis_mock
         
-        return TaskStatusResponse(
-            task_id=task_id,
-            task_status=data["task_status"],
-            progress=int(data.get("progress", 0)),
-            updated_at=data.get("updated_at")
+        # When
+        response = client.get(
+            "/api/v1/ma/sessions/resolve",
+            params={"global_session_key": "gsess_001"},
+            headers=ma_headers
         )
+        
+        # Then
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_queue_status"] == "notnull"
+        assert data["subagent_status"] == "continue"
+    
+    @patch('app.services.session_service.get_redis_client')
+    def test_resolve_session_not_found(self, mock_redis, client, ma_headers):
+        """세션 없음 → 404"""
+        redis_mock = MagicMock()
+        redis_mock.hgetall.return_value = {}
+        mock_redis.return_value = redis_mock
+        
+        response = client.get(
+            "/api/v1/ma/sessions/resolve",
+            params={"global_session_key": "gsess_invalid"},
+            headers=ma_headers
+        )
+        
+        assert response.status_code == 404
+
+
+class TestMALocalSession:
+    """MA Local 세션 테스트"""
+    
+    def test_register_local_session(self, ...):
+        """Local 세션 등록"""
+        pass
+    
+    def test_get_local_session_exists(self, ...):
+        """Local 세션 조회 - 존재"""
+        pass
+    
+    def test_get_local_session_not_exists(self, ...):
+        """Local 세션 조회 - 없음"""
+        pass
+
+
+class TestMASessionState:
+    """MA 세션 상태 업데이트 테스트"""
+    
+    def test_patch_session_state(self, ...):
+        """세션 상태 업데이트 성공"""
+        pass
+    
+    def test_patch_session_not_found(self, ...):
+        """없는 세션 업데이트 → 404"""
+        pass
+
+
+class TestMAContext:
+    """MA 대화 이력 테스트"""
+    
+    def test_get_conversation_history(self, ...):
+        """대화 이력 조회"""
+        pass
+    
+    def test_save_conversation_turn(self, ...):
+        """대화 턴 저장"""
+        pass
 ```
 
----
-
-## 6. 에러 처리
-
-### 6.1 에러 코드 정의
-
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| SM001 | 400 | Invalid request parameters |
-| SM002 | 401 | Authentication failed |
-| SM003 | 403 | Permission denied |
-| SM004 | 404 | Session not found |
-| SM005 | 404 | Task not found |
-| SM006 | 409 | Session already exists |
-| SM007 | 422 | Invalid session state transition |
-| SM008 | 500 | Internal server error |
-| SM009 | 503 | Redis connection failed |
-| SM010 | 503 | Database connection failed |
-
-### 6.2 에러 응답 형식
-
-```json
-{
-  "error": {
-    "code": "SM004",
-    "message": "Session not found",
-    "detail": "Session with id 'sess_invalid' does not exist",
-    "request_id": "req_20250316_001"
-  }
-}
-```
-
----
-
-## 7. 보안
-
-### 7.1 인증
-
-- API Key 기반 인증 (서비스 간 통신)
-- JWT 토큰 (Portal 관리자)
+### 2. **Service Layer Tests**
 
 ```python
-# API Key 검증
-async def verify_api_key(api_key: str = Header(..., alias="X-API-Key")):
-    if api_key not in VALID_API_KEYS:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return api_key
+# tests/unit/services/test_session_service.py
+class TestSessionService:
+    """SessionService 단위 테스트"""
+    
+    def test_generate_id_format(self):
+        """ID 생성 포맷 검증"""
+        service = SessionService()
+        
+        conv_id = service._generate_id("conv")
+        ctx_id = service._generate_id("ctx")
+        
+        assert conv_id.startswith("conv_")
+        assert ctx_id.startswith("ctx_")
+        assert len(conv_id) > 20  # timestamp + uuid
+    
+    def test_session_state_transition(self):
+        """세션 상태 전이 검증"""
+        # START → TALK → END 전이 가능
+        # START → END 직접 전이 가능
+        pass
+    
+    def test_subagent_status_values(self):
+        """SubAgent 상태값 검증"""
+        valid_statuses = ["undefined", "continue", "complete", "error"]
+        # 각 상태값이 올바르게 처리되는지 검증
+        pass
 ```
 
-### 7.2 데이터 암호화
-
-- 전송 중: TLS 1.3
-- 저장 시: PostgreSQL Transparent Data Encryption (TDE)
-- 민감 필드: AES-256 암호화
-
----
-
-## 8. 모니터링
-
-### 8.1 메트릭
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `sm_request_total` | Counter | 총 요청 수 |
-| `sm_request_duration_seconds` | Histogram | 요청 처리 시간 |
-| `sm_active_sessions` | Gauge | 활성 세션 수 |
-| `sm_redis_cache_hit_total` | Counter | 캐시 히트 수 |
-| `sm_redis_cache_miss_total` | Counter | 캐시 미스 수 |
-| `sm_task_queue_size` | Gauge | Task Queue 크기 |
-
-### 8.2 로깅
+### 3. **Integration Tests**
 
 ```python
-# 구조화된 로그 형식
-{
-  "timestamp": "2025-03-16T08:40:06Z",
-  "level": "INFO",
-  "service": "session-manager",
-  "request_id": "req_20250316_001",
-  "session_id": "sess_20250316_0019",
-  "action": "create_session",
-  "duration_ms": 45,
-  "status": "success"
-}
+# tests/integration/test_redis_integration.py
+class TestRedisIntegration:
+    """Redis 연동 테스트"""
+    
+    @pytest.fixture
+    def redis_client(self):
+        """실제 Redis 연결 (테스트 DB)"""
+        import redis
+        client = redis.Redis(host='localhost', port=6379, db=15)
+        yield client
+        client.flushdb()  # 테스트 후 정리
+    
+    def test_session_crud(self, redis_client):
+        """세션 CRUD 통합 테스트"""
+        helper = RedisHelper(redis_client)
+        
+        # Create
+        helper.set_session("gsess_001", {"user_id": "user_001"})
+        
+        # Read
+        session = helper.get_session("gsess_001")
+        assert session["user_id"] == "user_001"
+        
+        # Delete
+        helper.delete_session("gsess_001")
+        assert helper.get_session("gsess_001") == {}
+```
+
+### 4. **E2E Tests**
+
+```python
+# tests/e2e/test_session_lifecycle.py
+class TestSessionLifecycle:
+    """세션 전체 라이프사이클 테스트"""
+    
+    @patch('app.db.redis.get_redis_client')
+    def test_complete_session_flow(self, mock_redis, client, agw_headers, ma_headers):
+        """
+        전체 세션 플로우:
+        1. AGW: 세션 생성
+        2. MA: 세션 조회
+        3. MA: Local 세션 등록
+        4. MA: 대화 턴 저장
+        5. MA: 세션 상태 업데이트
+        6. MA: 세션 종료
+        """
+        # 1. AGW: 세션 생성
+        create_resp = client.post(
+            "/api/v1/agw/sessions",
+            json={"global_session_key": "gsess_e2e", "user_id": "user_001"},
+            headers=agw_headers
+        )
+        assert create_resp.status_code == 201
+        session_data = create_resp.json()
+        
+        # 2. MA: 세션 조회
+        resolve_resp = client.get(
+            "/api/v1/ma/sessions/resolve",
+            params={"global_session_key": "gsess_e2e"},
+            headers=ma_headers
+        )
+        assert resolve_resp.status_code == 200
+        
+        # 3. MA: Local 세션 등록
+        local_resp = client.post(
+            "/api/v1/ma/sessions/local",
+            json={
+                "global_session_key": "gsess_e2e",
+                "local_session_key": "lsess_001",
+                "agent_id": "agent-transfer"
+            },
+            headers=ma_headers
+        )
+        assert local_resp.status_code == 201
+        
+        # ... 나머지 플로우
+    
+    def test_multiuser_isolation(self, client, ...):
+        """멀티유저 세션 격리 테스트"""
+        # 사용자 A, B의 세션이 독립적으로 관리되는지 검증
+        pass
 ```
 
 ---
 
-## 9. 배포
+## 🚀 테스트 실행 전략
 
-### 9.1 컨테이너 설정
+### 1. **로컬 개발**
 
-- Base Image: `python:3.11-slim`
-- Health Check: `/health`
-- Graceful Shutdown: 30초
+```bash
+# 전체 테스트 실행
+pytest tests/ -v
 
-### 9.2 리소스
+# 특정 API 테스트만
+pytest tests/test_ma_api.py -v
 
-| Resource | Request | Limit |
-|----------|---------|-------|
-| CPU | 250m | 1000m |
-| Memory | 256Mi | 1Gi |
+# 특정 클래스만
+pytest tests/test_ma_api.py::TestMASessionResolve -v
 
-### 9.3 Auto Scaling
+# 특정 테스트만
+pytest tests/test_ma_api.py::TestMASessionResolve::test_resolve_session_success -v
 
-- Min Replicas: 2
-- Max Replicas: 10
-- Target CPU: 70%
+# 커버리지
+pytest tests/ --cov=app --cov-report=html
+```
+
+### 2. **마커 기반 실행**
+
+```python
+# pytest.ini
+[pytest]
+markers =
+    unit: 단위 테스트 (빠름)
+    integration: 통합 테스트 (Redis 필요)
+    e2e: E2E 테스트 (전체 스택)
+    slow: 느린 테스트
+```
+
+```bash
+# 단위 테스트만
+pytest -m unit
+
+# 통합 테스트 제외
+pytest -m "not integration"
+
+# 빠른 테스트만
+pytest -m "not slow"
+```
 
 ---
 
-## 10. 변경 이력
+## 🔄 Red-Green-Refactor 사이클
 
-| 버전 | 날짜 | 작성자 | 변경 내용 |
-|------|------|--------|----------|
-| 1.0 | 2025-03-16 | - | 초기 작성 |
+### 실제 적용 예시: 새 API 추가
+
+#### Step 1: RED - 실패하는 테스트 작성
+
+```python
+# tests/test_ma_api.py
+def test_01_red_get_session_metadata():
+    """
+    요구사항: 세션 메타데이터 조회 API
+    
+    RED 단계: 이 테스트는 실패해야 함 (API 미구현)
+    """
+    response = client.get(
+        "/api/v1/ma/sessions/metadata",
+        params={"global_session_key": "gsess_001"},
+        headers=ma_headers
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert "created_at" in data
+    assert "updated_at" in data
+```
+
+**테스트 실행**: ❌ 실패 (404 Not Found)
+
+#### Step 2: GREEN - 최소한의 코드로 통과
+
+```python
+# app/api/v1/ma/sessions.py
+@router.get("/metadata")
+async def get_session_metadata(
+    global_session_key: str,
+    api_key: str = Depends(verify_ma_api_key)
+):
+    return {
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat()
+    }
+```
+
+**테스트 실행**: ✅ 통과
+
+#### Step 3: REFACTOR - 코드 개선
+
+```python
+# app/api/v1/ma/sessions.py
+@router.get("/metadata", response_model=SessionMetadataResponse)
+async def get_session_metadata(
+    global_session_key: str,
+    api_key: str = Depends(verify_ma_api_key),
+    session_service: SessionService = Depends(get_session_service)
+):
+    """세션 메타데이터 조회"""
+    return session_service.get_session_metadata(global_session_key)
+```
+
+**테스트 실행**: ✅ 모든 테스트 통과
+
+---
+
+## 🔧 CI/CD 통합
+
+### GitHub Actions 워크플로우
+
+```yaml
+# .github/workflows/test.yml
+name: Test Suite
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio
+      
+      - name: Lint with Ruff
+        run: |
+          pip install ruff
+          ruff check .
+      
+      - name: Run tests
+        run: pytest tests/ -v --cov=app --cov-report=xml
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+```
+
+### PR Gate 규칙
+
+- ❌ 테스트 실패 시 머지 차단
+- ❌ 커버리지 80% 미만 시 경고
+- ❌ Lint 실패 시 머지 차단
+
+---
+
+## 📊 테스트 커버리지 목표
+
+| 레이어 | 목표 | 현재 |
+|--------|------|------|
+| Unit Tests | 80%+ | ⚠️ TODO |
+| Integration Tests | 60%+ | ⚠️ TODO |
+| API Tests | 90%+ | ✅ ~85% |
+| E2E Tests | 주요 시나리오 100% | ⚠️ TODO |
+
+---
+
+## 💡 베스트 프랙티스
+
+### 1. **테스트 명명 규칙**
+
+```python
+# 패턴: test_<기능>_<시나리오>
+def test_create_session_success():
+def test_create_session_already_exists():
+def test_resolve_session_not_found():
+def test_patch_session_invalid_state():
+```
+
+### 2. **Given-When-Then 패턴**
+
+```python
+def test_resolve_session_with_local_session(self, mock_redis, client, ma_headers):
+    """Local 세션이 있는 경우 함께 반환"""
+    # Given: 세션과 Local 매핑이 존재
+    redis_mock = MagicMock()
+    redis_mock.hgetall.side_effect = [
+        {"global_session_key": "gsess_001", "session_state": "talk"},  # 세션
+        {"local_session_key": "lsess_001", "agent_id": "agent-transfer"}  # 매핑
+    ]
+    mock_redis.return_value = redis_mock
+    
+    # When: MA가 세션 조회
+    response = client.get(
+        "/api/v1/ma/sessions/resolve",
+        params={"global_session_key": "gsess_001", "agent_id": "agent-transfer"},
+        headers=ma_headers
+    )
+    
+    # Then: Local 세션 키도 함께 반환
+    assert response.status_code == 200
+    assert response.json()["local_session_key"] == "lsess_001"
+```
+
+### 3. **Fixture 재사용**
+
+```python
+# conftest.py에 공통 fixture 정의
+@pytest.fixture
+def sample_session_data():
+    return {
+        "global_session_key": "gsess_001",
+        "user_id": "user_001",
+        "session_state": "talk",
+        "conversation_id": "conv_001",
+        "context_id": "ctx_001"
+    }
+
+# 테스트에서 재사용
+def test_something(sample_session_data):
+    assert sample_session_data["session_state"] == "talk"
+```
+
+### 4. **테스트 격리**
+
+```python
+# 각 테스트는 독립적으로 실행 가능해야 함
+@pytest.fixture(autouse=True)
+def reset_state():
+    """각 테스트 전후로 상태 초기화"""
+    yield
+    # Cleanup
+```
+
+---
+
+## 📝 체크리스트
+
+### 새 기능 개발 시
+
+- [ ] 실패하는 테스트 먼저 작성 (RED)
+- [ ] 최소 구현으로 통과 (GREEN)
+- [ ] 리팩토링 후 테스트 통과 확인 (REFACTOR)
+- [ ] 엣지 케이스 테스트 추가
+- [ ] 커버리지 확인 (80% 이상)
+- [ ] Ruff 린트 통과
+
+### 버그 수정 시
+
+- [ ] 버그 재현하는 테스트 먼저 작성
+- [ ] 테스트 실패 확인
+- [ ] 버그 수정
+- [ ] 테스트 통과 확인
+- [ ] 관련 테스트 모두 통과 확인
+
+---
+
+## 🔗 참고 자료
+
+- [pytest 문서](https://docs.pytest.org/)
+- [pytest-asyncio](https://pytest-asyncio.readthedocs.io/)
+- [FastAPI Testing](https://fastapi.tiangolo.com/tutorial/testing/)
+- [Redis 테스트 패턴](https://redis.io/docs/manual/patterns/)
+
+---
+
+## 📝 변경 이력
+
+| 버전 | 날짜 | 변경 내용 |
+|------|------|----------|
+| 1.0 | 2026-01-01 | 초기 작성 |

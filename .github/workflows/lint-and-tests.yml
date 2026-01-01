@@ -1,0 +1,82 @@
+name: Lint and Tests
+
+on:
+  pull_request:
+    branches: ["dev", "main"]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  push:
+    branches: ["dev", "main"]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Cache uv dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/uv
+          .venv
+        key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-
+
+    - name: Install dependencies
+      run: |
+        uv venv
+        uv pip install -e ".[dev]"
+
+    - name: Run Ruff linter (check)
+      run: |
+        uv run ruff check .
+
+    - name: Run Ruff formatter (check)
+      run: |
+        uv run ruff format --check .
+
+    - name: Run pytest with coverage
+      env:
+        USE_MOCK_DB: "true"
+        APP_ENV: "test"
+        AGW_API_KEY: "test-agw-key"
+        MA_API_KEY: "test-ma-key"
+        PORTAL_API_KEY: "test-portal-key"
+        VDB_API_KEY: "test-vdb-key"
+      run: |
+        uv run pytest -v \
+          --cov=app \
+          --cov-report=term \
+          --cov-report=xml \
+          --cov-fail-under=80
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v4
+      if: always()
+      with:
+        files: ./coverage.xml
+        flags: unittests
+        name: session-manager-coverage
+        fail_ci_if_error: false

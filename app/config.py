@@ -1,53 +1,64 @@
 """
-Session Manager - Configuration Settings
+Session Manager - Configuration Settings (v3.0)
 """
-from typing import List
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+from pydantic import ConfigDict
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings"""
-    
+
     # App
     APP_ENV: str = "dev"
     DEBUG: bool = True
     API_PREFIX: str = "/api/v1"
     SECRET_KEY: str = "your-secret-key-change-in-production"
-    
+
+    # Sprint 2: Mock Repository
+    USE_MOCK_DB: bool = True
+
     # CORS
-    ALLOWED_ORIGINS: List[str] = ["*"]
-    
+    ALLOWED_ORIGINS: list[str] = ["*"]
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_MAX_CONNECTIONS: int = 10
-    SESSION_CACHE_TTL: int = 3600  # 1 hour
-    TASK_CACHE_TTL: int = 86400  # 24 hours
-    
+
+    # TTL Settings
+    SESSION_CACHE_TTL: int = 3600      # 1 hour - Global Session
+    LOCAL_SESSION_TTL: int = 1800      # 30 min - Local Session
+    SESSION_MAP_TTL: int = 3600        # 1 hour - Global↔Local 매핑
+
     # PostgreSQL
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/session_manager"
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/session_manager"
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
     DB_ECHO: bool = False
-    
-    # Session
-    SESSION_TTL: int = 3600  # 1 hour
-    SESSION_ID_PREFIX: str = "sess"
+
+    # Session ID Prefix
+    GLOBAL_SESSION_PREFIX: str = "gsess"
+    LOCAL_SESSION_PREFIX: str = "lsess"
     CONVERSATION_ID_PREFIX: str = "conv"
-    TASK_ID_PREFIX: str = "task"
-    
-    # API Keys (comma-separated)
-    VALID_API_KEYS: str = "agw-api-key,ma-api-key,portal-api-key"
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    CONTEXT_ID_PREFIX: str = "ctx"
+
+    # API Keys (호출자별)
+    AGW_API_KEY: str = "agw-api-key"
+    MA_API_KEY: str = "ma-api-key"
+    PORTAL_API_KEY: str = "portal-api-key"
+    VDB_API_KEY: str = "vdb-api-key"
+
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore"
+    )
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance"""
     return Settings()
 
 

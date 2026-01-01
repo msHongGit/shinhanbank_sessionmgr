@@ -1,17 +1,16 @@
 """
-Session Manager - Custom Exceptions
+Session Manager - Custom Exceptions (v3.0)
 """
-from typing import Optional
 
 
-class SessionManagerException(Exception):
-    """Base exception for Session Manager"""
-    
+class SessionManagerError(Exception):
+    """Base exception"""
+
     def __init__(
         self,
         code: str,
         message: str,
-        detail: Optional[str] = None,
+        detail: str | None = None,
         status_code: int = 500,
     ):
         self.code = code
@@ -21,72 +20,84 @@ class SessionManagerException(Exception):
         super().__init__(message)
 
 
-class SessionNotFoundError(SessionManagerException):
+class SessionNotFoundError(SessionManagerError):
     """Session not found"""
-    
-    def __init__(self, session_id: str):
-        super().__init__(
-            code="SM004",
-            message="Session not found",
-            detail=f"Session with id '{session_id}' does not exist",
-            status_code=404,
-        )
 
-
-class TaskNotFoundError(SessionManagerException):
-    """Task not found"""
-    
-    def __init__(self, task_id: str):
-        super().__init__(
-            code="SM005",
-            message="Task not found",
-            detail=f"Task with id '{task_id}' does not exist or is not ready",
-            status_code=404,
-        )
-
-
-class SessionAlreadyExistsError(SessionManagerException):
-    """Session already exists"""
-    
     def __init__(self, session_key: str):
         super().__init__(
-            code="SM006",
-            message="Session already exists",
-            detail=f"Session with key '{session_key}' already exists",
-            status_code=409,
+            code="SM001",
+            message="Session not found",
+            detail=f"Session with key '{session_key}' does not exist",
+            status_code=404,
         )
 
 
-class InvalidSessionStateError(SessionManagerException):
-    """Invalid session state transition"""
-    
-    def __init__(self, from_state: str, to_state: str):
+class SessionExpiredError(SessionManagerError):
+    """Session expired"""
+
+    def __init__(self, session_key: str):
         super().__init__(
-            code="SM007",
-            message="Invalid session state transition",
-            detail=f"Cannot transition from '{from_state}' to '{to_state}'",
-            status_code=422,
+            code="SM002",
+            message="Session expired",
+            detail=f"Session '{session_key}' has expired",
+            status_code=410,
         )
 
 
-class RedisConnectionError(SessionManagerException):
+class LocalSessionNotFoundError(SessionManagerError):
+    """Local session not found"""
+
+    def __init__(self, global_key: str, agent_id: str):
+        super().__init__(
+            code="SM003",
+            message="Local session not found",
+            detail=f"No local session mapping for global='{global_key}', agent='{agent_id}'",
+            status_code=404,
+        )
+
+
+class ContextNotFoundError(SessionManagerError):
+    """Context not found"""
+
+    def __init__(self, context_id: str):
+        super().__init__(
+            code="SM004",
+            message="Context not found",
+            detail=f"Context '{context_id}' does not exist",
+            status_code=404,
+        )
+
+
+class ProfileNotFoundError(SessionManagerError):
+    """Profile not found"""
+
+    def __init__(self, user_id: str):
+        super().__init__(
+            code="SM005",
+            message="Profile not found",
+            detail=f"Profile for user '{user_id}' does not exist",
+            status_code=404,
+        )
+
+
+class RedisConnectionError(SessionManagerError):
     """Redis connection error"""
-    
+
     def __init__(self, detail: str = None):
         super().__init__(
-            code="SM009",
+            code="SM010",
             message="Redis connection failed",
             detail=detail,
             status_code=503,
         )
 
 
-class DatabaseConnectionError(SessionManagerException):
+class DatabaseConnectionError(SessionManagerError):
     """Database connection error"""
-    
+
     def __init__(self, detail: str = None):
         super().__init__(
-            code="SM010",
+            code="SM011",
             message="Database connection failed",
             detail=detail,
             status_code=503,
