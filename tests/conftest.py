@@ -13,7 +13,11 @@ from fastapi.testclient import TestClient
 if "REDIS_URL" not in os.environ:
     os.environ["REDIS_URL"] = "redis://localhost:6379/0"
 
-from app.config import settings
+from app.config import get_settings
+
+# Settings cache 초기화 (환경변수 반영)
+get_settings.cache_clear()
+settings = get_settings()
 
 # v4.0: Mock Repository 사용으로 DB patching 불필요
 from app.main import app
