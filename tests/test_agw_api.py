@@ -46,7 +46,7 @@ class TestAGWSessionCreate:
         """세션 생성 - 매번 새로운 키 생성 (Sprint 2 로직)"""
         # Sprint 2: SM이 매번 새 global_session_key를 생성하므로 항상 is_new=True
         request_data = {k: v for k, v in sample_agw_session_create_request.items() if k != "global_session_key"}
-        
+
         # 첫 번째 생성
         response1 = client.post("/api/v1/agw/sessions", json=request_data, headers=agw_headers)
         assert response1.status_code == 201

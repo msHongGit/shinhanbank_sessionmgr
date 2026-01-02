@@ -91,9 +91,7 @@ class TestDemoScenarioSimple:
 
         # 2. GET /api/v1/ma/sessions/resolve - 세션 조회 (customer_profile 포함)
         print("\n[2] GET /api/v1/ma/sessions/resolve - 세션 조회 (customer_profile 포함)")
-        resolve_resp = client.get(
-            "/api/v1/ma/sessions/resolve", params={"global_session_key": global_session_key, "channel": "web"}
-        )
+        resolve_resp = client.get("/api/v1/ma/sessions/resolve", params={"global_session_key": global_session_key, "channel": "web"})
         assert resolve_resp.status_code == 200, f"세션 조회 실패: {resolve_resp.json()}"
         resolve_data = resolve_resp.json()
         print("   ✅ 세션 조회 성공")
@@ -166,9 +164,7 @@ class TestDemoScenarioSimple:
 
         # 6. GET /api/v1/ma/context/history - 대화 이력 조회
         print("\n[6] GET /api/v1/ma/context/history - 대화 이력 조회")
-        history_resp = client.get(
-            "/api/v1/ma/context/history", params={"global_session_key": global_session_key, "context_id": context_id}
-        )
+        history_resp = client.get("/api/v1/ma/context/history", params={"global_session_key": global_session_key, "context_id": context_id})
         assert history_resp.status_code == 200, f"대화 이력 조회 실패: {history_resp.json()}"
         history_data = history_resp.json()
         print("   ✅ 대화 이력 조회 성공")
