@@ -9,9 +9,9 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-# CI 환경에서 Redis URL 설정 (GitHub Actions service container용)
-if "REDIS_URL" not in os.environ:
-    os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+# 모든 환경에서 REDIS_URL 필수
+# - 로컬: .env 파일에 Azure Redis 설정
+# - CI: GitHub Actions workflow에서 설정
 
 from app.config import get_settings
 

@@ -8,13 +8,14 @@ from typing import Any
 
 import redis
 
-from app.config import settings
-
 _redis_client: redis.Redis | None = None
 
 
 def init_redis() -> None:
     """Initialize Redis connection (Sync)"""
+    from app.config import get_settings
+
+    settings = get_settings()
     global _redis_client
     _redis_client = redis.from_url(
         settings.REDIS_URL,

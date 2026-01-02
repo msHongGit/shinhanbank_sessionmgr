@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: list[str] = ["*"]
 
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # Redis (Azure Redis Cache - 환경변수 필수)
+    REDIS_URL: str
     REDIS_MAX_CONNECTIONS: int = 10
 
     # TTL Settings
