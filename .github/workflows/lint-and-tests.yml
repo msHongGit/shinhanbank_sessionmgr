@@ -20,17 +20,6 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -73,7 +62,7 @@ jobs:
         USE_MOCK_DB: "true"
         APP_ENV: "test"
         ENABLE_API_KEY_AUTH: "false"
-        REDIS_URL: "redis://redis:6379/0"
+        REDIS_URL: ${{ secrets.REDIS_URL }}
         AGW_API_KEY: "test-agw-key"
         MA_API_KEY: "test-ma-key"
         PORTAL_API_KEY: "test-portal-key"
