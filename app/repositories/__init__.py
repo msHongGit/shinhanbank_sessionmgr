@@ -11,6 +11,8 @@ from app.repositories.base import (
 from app.repositories.mock.mock_context_repository import MockContextRepository
 from app.repositories.mock.mock_profile_repository import MockProfileRepository
 from app.repositories.mock.mock_session_repository import MockSessionRepository
+from app.repositories.redis_context_repository import RedisContextRepository
+from app.repositories.redis_session_repository import RedisSessionRepository
 
 __all__ = [
     "SessionRepositoryInterface",
@@ -19,4 +21,6 @@ __all__ = [
     "MockSessionRepository",
     "MockContextRepository",
     "MockProfileRepository",
+    "RedisSessionRepository",
+    "RedisContextRepository",
 ]

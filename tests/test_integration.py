@@ -10,9 +10,8 @@ class TestSessionLifecycle:
 
     def test_full_session_lifecycle(self, client, agw_headers, ma_headers):
         """세션 생성 → 조회 → 업데이트 → 종료"""
-        # 1. 세션 생성 (AGW)
+        # 1. 세션 생성 (AGW) - SM이 global_session_key 자동 생성
         create_req = {
-            "global_session_key": "integration_test_session",
             "user_id": "user_int_test",
             "channel": "mobile",
             "request_id": "req_int_001",
@@ -21,11 +20,12 @@ class TestSessionLifecycle:
         assert create_resp.status_code == 201
         session = create_resp.json()
         assert session["is_new"] is True
+        global_session_key = session["global_session_key"]
 
         # 2. 세션 조회 (MA)
         resolve_resp = client.get(
             "/api/v1/ma/sessions/resolve",
-            params={"global_session_key": create_req["global_session_key"], "channel": "mobile"},
+            params={"global_session_key": global_session_key, "agent_type": "knowledge"},
             headers=ma_headers,
         )
         assert resolve_resp.status_code == 200
@@ -34,18 +34,21 @@ class TestSessionLifecycle:
 
         # 3. 세션 상태 업데이트 (MA)
         patch_req = {
-            "global_session_key": create_req["global_session_key"],
+            "global_session_key": global_session_key,
             "conversation_id": session["conversation_id"],
             "turn_id": "turn_001",
             "session_state": "talk",
-            "state_patch": {"subagent_status": "continue"},
+            "state_patch": {
+                "subagent_status": "continue",
+                "task_queue_status": "null",
+            },
         }
         patch_resp = client.patch("/api/v1/ma/sessions/state", json=patch_req, headers=ma_headers)
         assert patch_resp.status_code == 200
 
         # 4. 세션 종료 (MA)
         close_req = {
-            "global_session_key": create_req["global_session_key"],
+            "global_session_key": global_session_key,
             "conversation_id": session["conversation_id"],
             "close_reason": "test_completed",
         }

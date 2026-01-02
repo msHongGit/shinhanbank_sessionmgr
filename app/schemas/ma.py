@@ -8,7 +8,15 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.common import AgentType, ConversationTurn, CustomerProfile, ResponseType, SessionState, SubAgentStatus, TaskQueueStatus
+from app.schemas.common import (
+    AgentType,
+    ConversationTurn,
+    CustomerProfile,
+    ResponseType,
+    SessionState,
+    SubAgentStatus,
+    TaskQueueStatus,
+)
 
 # ============ ResolveSession ============
 
@@ -44,7 +52,10 @@ class SessionResolveResponse(BaseModel):
     task_queue_status: TaskQueueStatus = Field(..., description="Task Queue 상태")
     subagent_status: SubAgentStatus = Field(..., description="SubAgent 상태")
     last_event: LastEvent | None = Field(None, description="마지막 이벤트")
-    customer_profile_ref: str | None = Field(None, description="고객 프로파일 참조")
+    customer_profile: CustomerProfile | None = Field(
+        None,
+        description="세션에 연결된 고객 프로파일 (옵션)",
+    )
 
 
 # ============ Local Session 등록/조회 ============

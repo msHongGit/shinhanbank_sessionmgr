@@ -4,6 +4,7 @@ In-Memory Dict 기반 세션 저장소 (Singleton)
 """
 
 from datetime import UTC, datetime, timedelta
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -38,13 +39,14 @@ class MockSessionRepository(SessionRepositoryInterface):
         session_state: str,
         task_queue_status: str,
         subagent_status: str,
+        customer_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """세션 생성"""
         if global_session_key in self._sessions:
             return self._sessions[global_session_key]
 
         now = datetime.now(UTC)
-        session = {
+        session: dict[str, Any] = {
             "session_id": self._id_counter,
             "global_session_key": global_session_key,
             "user_id": user_id,
@@ -58,6 +60,9 @@ class MockSessionRepository(SessionRepositoryInterface):
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
         }
+
+        if customer_profile is not None:
+            session["customer_profile"] = json.dumps(customer_profile)
 
         self._sessions[global_session_key] = session
         self._id_counter += 1

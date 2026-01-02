@@ -5,9 +5,16 @@ Session Manager - Context Service (v4.0 - Sync)
 
 from datetime import UTC, datetime
 
+from app.config import settings
 from app.core.exceptions import ContextNotFoundError, SessionNotFoundError
-from app.repositories.base import ContextRepositoryInterface, SessionRepositoryInterface
-from app.repositories.mock import MockContextRepository, MockSessionRepository
+from app.repositories import (
+    ContextRepositoryInterface,
+    SessionRepositoryInterface,
+    MockContextRepository,
+    MockSessionRepository,
+    RedisContextRepository,
+    RedisSessionRepository,
+)
 from app.schemas.common import ConversationTurn
 from app.schemas.ma import (
     ConversationHistoryResponse,
@@ -25,8 +32,14 @@ class ContextService:
         context_repo: ContextRepositoryInterface | None = None,
         session_repo: SessionRepositoryInterface | None = None,
     ):
-        self.context_repo = context_repo or MockContextRepository()
-        self.session_repo = session_repo or MockSessionRepository()
+        if context_repo is not None and session_repo is not None:
+            self.context_repo = context_repo
+            self.session_repo = session_repo
+            return
+
+        # Sprint 2: 대화 컨텍스트는 항상 Redis를 사용
+        self.context_repo = RedisContextRepository()
+        self.session_repo = RedisSessionRepository()
 
     # ============ MA API ============
 
@@ -118,7 +131,4 @@ class ContextService:
 
 def get_context_service() -> ContextService:
     """ContextService 인스턴스 반환 (DI)"""
-    return ContextService(
-        context_repo=MockContextRepository(),
-        session_repo=MockSessionRepository(),
-    )
+    return ContextService()

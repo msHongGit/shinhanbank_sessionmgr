@@ -9,9 +9,15 @@ from uuid import uuid4
 
 from app.config import settings
 from app.core.exceptions import SessionNotFoundError
-from app.repositories.base import ContextRepositoryInterface, SessionRepositoryInterface
-from app.repositories.mock import MockContextRepository, MockSessionRepository
-from app.schemas import AgentType, SessionState, SubAgentStatus, TaskQueueStatus
+from app.repositories import (
+    ContextRepositoryInterface,
+    SessionRepositoryInterface,
+    MockContextRepository,
+    MockSessionRepository,
+    RedisContextRepository,
+    RedisSessionRepository,
+)
+from app.schemas import AgentType, CustomerProfile, SessionState, SubAgentStatus, TaskQueueStatus
 from app.schemas.agw import SessionCreateRequest, SessionCreateResponse
 from app.schemas.ma import (
     LastEvent,
@@ -36,40 +42,56 @@ class SessionService:
         session_repo: SessionRepositoryInterface | None = None,
         context_repo: ContextRepositoryInterface | None = None,
     ):
-        self.session_repo = session_repo or MockSessionRepository()
-        self.context_repo = context_repo or MockContextRepository()
+        if session_repo is not None and context_repo is not None:
+            self.session_repo = session_repo
+            self.context_repo = context_repo
+            return
+
+        # Sprint 2: 세션/컨텍스트/세션 매핑은 항상 Redis를 사용
+        self.session_repo = RedisSessionRepository()
+        self.context_repo = RedisContextRepository()
 
     def _generate_id(self, prefix: str) -> str:
         """ID 생성"""
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         return f"{prefix}_{timestamp}_{uuid4().hex[:6]}"
 
+    def _load_customer_profile(self, session: dict) -> CustomerProfile | None:
+        """세션 딕셔너리에서 고객 프로파일 스냅샷 복원"""
+        raw = session.get("customer_profile")
+        if not raw:
+            return None
+
+        if isinstance(raw, dict):
+            try:
+                return CustomerProfile(**raw)
+            except Exception:
+                return None
+
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    return CustomerProfile(**data)
+            except Exception:
+                return None
+
+        return None
+
     # ============ AGW API ============
 
     def create_session(self, request: SessionCreateRequest) -> SessionCreateResponse:
-        """초기 세션 생성 (AGW → SM)"""
-        existing = self.session_repo.get(request.global_session_key)
-
-        if existing:
-            expires_at_str = existing.get("expires_at", "")
-            if expires_at_str:
-                expires_at = datetime.fromisoformat(expires_at_str)
-                if expires_at > datetime.now(UTC):
-                    return SessionCreateResponse(
-                        global_session_key=request.global_session_key,
-                        conversation_id=existing.get("conversation_id", ""),
-                        context_id=existing.get("context_id", ""),
-                        session_state=SessionState(existing.get("session_state", "start")),
-                        expires_at=expires_at,
-                        is_new=False,
-                    )
-
+        """초기 세션 생성 (AGW → SM) - Global Session Key 자동 생성"""
+        # Session Manager가 Global Session Key 생성
+        global_session_key = self._generate_id(settings.GLOBAL_SESSION_PREFIX)
         conversation_id = self._generate_id(settings.CONVERSATION_ID_PREFIX)
         context_id = self._generate_id(settings.CONTEXT_ID_PREFIX)
         expires_at = datetime.now(UTC) + timedelta(seconds=settings.SESSION_CACHE_TTL)
 
+        profile_data = request.customer_profile.model_dump() if request.customer_profile else None
+
         self.session_repo.create(
-            global_session_key=request.global_session_key,
+            global_session_key=global_session_key,
             user_id=request.user_id,
             channel=request.channel,
             conversation_id=conversation_id,
@@ -77,21 +99,23 @@ class SessionService:
             session_state=SessionState.START.value,
             task_queue_status=TaskQueueStatus.NULL.value,
             subagent_status=SubAgentStatus.UNDEFINED.value,
+            customer_profile=profile_data,
         )
 
         self.context_repo.create(
             context_id=context_id,
-            global_session_key=request.global_session_key,
+            global_session_key=global_session_key,
             user_id=request.user_id,
         )
 
         return SessionCreateResponse(
-            global_session_key=request.global_session_key,
+            global_session_key=global_session_key,
             conversation_id=conversation_id,
             context_id=context_id,
             session_state=SessionState.START,
             expires_at=expires_at,
             is_new=True,
+            customer_profile=request.customer_profile,
         )
 
     # ============ MA API ============
@@ -132,7 +156,7 @@ class SessionService:
             task_queue_status=task_queue_status,
             subagent_status=SubAgentStatus(session.get("subagent_status", "undefined")),
             last_event=last_event,
-            customer_profile_ref=session.get("customer_profile_ref"),
+            customer_profile=self._load_customer_profile(session),
         )
 
     def register_local_session(self, request: LocalSessionRegisterRequest) -> LocalSessionRegisterResponse:
@@ -250,7 +274,13 @@ class SessionService:
     ) -> SessionListResponse:
         """세션 목록 조회 (Portal → SM, 읽기 전용)"""
         repo = self.session_repo
-        all_sessions = list(repo._sessions.values()) if hasattr(repo, "_sessions") else []
+
+        if hasattr(repo, "list_all_sessions"):
+            all_sessions = repo.list_all_sessions()  # type: ignore[assignment]
+        elif hasattr(repo, "_sessions"):
+            all_sessions = list(repo._sessions.values())  # type: ignore[attr-defined,assignment]
+        else:
+            all_sessions = []
 
         filtered = all_sessions
         if user_id:
@@ -286,7 +316,4 @@ class SessionService:
 
 def get_session_service() -> SessionService:
     """SessionService 인스턴스 반환 (DI)"""
-    return SessionService(
-        session_repo=MockSessionRepository(),
-        context_repo=MockContextRepository(),
-    )
+    return SessionService()

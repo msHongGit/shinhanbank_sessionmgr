@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api/v1"
     SECRET_KEY: str = "your-secret-key-change-in-production"
 
-    # Sprint 2: Mock Repository
+    # Sprint 2: Mock/DB 토글 (세션/컨텍스트/매핑에는 사용하지 않고 프로파일에만 사용, 향후 Context DB 도입 시 제거 예정)
     USE_MOCK_DB: bool = True
 
     # CORS
@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     MA_API_KEY: str = "ma-api-key"
     PORTAL_API_KEY: str = "portal-api-key"
     VDB_API_KEY: str = "vdb-api-key"
+
+    # Auth (Sprint 2: 기본 비활성화, 운영에서만 활성화 권장)
+    ENABLE_API_KEY_AUTH: bool = False
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore")
 

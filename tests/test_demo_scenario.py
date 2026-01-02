@@ -1,7 +1,7 @@
 """
 Session Manager - Demo Scenario Test (Sprint 2)
 
-데모 시나리오에서 사용되는 7개 API만 테스트합니다.
+데모 시나리오에서 사용되는 핵심 Session Manager API만 테스트합니다.
 
 ## 테스트 실행 방법
 
@@ -19,15 +19,14 @@ uv run pytest tests/test_demo_scenario.py::TestDemoScenarioSimple::test_demo_api
 uv run pytest tests/test_demo_scenario.py::TestDemoAPISummary::test_list_demo_apis -v -s
 ```
 
-## 테스트 포함 API (총 7개)
+## 테스트 포함 API (총 6개)
 
-1. POST   /api/v1/agw/sessions          - 세션 생성
-2. GET    /api/v1/ma/sessions/resolve   - 세션 조회
-3. GET    /api/v1/ma/profiles/{user_id} - 프로파일 조회
-4. POST   /api/v1/ma/context/turn       - 대화 턴 저장
-5. GET    /api/v1/ma/context/history    - 대화 이력 조회
-6. PATCH  /api/v1/ma/sessions/state     - 세션 상태 업데이트
-7. POST   /api/v1/ma/sessions/close     - 세션 종료
+1. POST   /api/v1/agw/sessions          - 세션 생성 (customer_profile 포함)
+2. GET    /api/v1/ma/sessions/resolve   - 세션 조회 (customer_profile 포함)
+3. POST   /api/v1/ma/context/turn       - 대화 턴 저장
+4. GET    /api/v1/ma/context/history    - 대화 이력 조회
+5. PATCH  /api/v1/ma/sessions/state     - 세션 상태 업데이트
+6. POST   /api/v1/ma/sessions/close     - 세션 종료
 
 ## 참고 문서
 
@@ -43,28 +42,39 @@ from fastapi.testclient import TestClient
 class TestDemoScenarioSimple:
     """데모 시나리오의 모든 API를 간단하게 테스트"""
 
-    def test_demo_apis_sequential(self, client: TestClient, agw_headers, ma_headers):
+    def test_demo_apis_sequential(self, client: TestClient):
         """
         데모 시나리오의 모든 API를 순차적으로 호출 테스트
 
         사용되는 API:
-        1. POST /api/v1/agw/sessions - 세션 생성
-        2. GET /api/v1/ma/sessions/resolve - 세션 조회
-        3. GET /api/v1/ma/profiles/{user_id} - 프로파일 조회
-        4. POST /api/v1/ma/context/turn - 대화 턴 저장
-        5. GET /api/v1/ma/context/history - 대화 이력 조회
-        6. PATCH /api/v1/ma/sessions/state - 세션 상태 업데이트
-        7. POST /api/v1/ma/sessions/close - 세션 종료
+        1. POST /api/v1/agw/sessions - 세션 생성 (customer_profile 포함)
+        2. GET /api/v1/ma/sessions/resolve - 세션 조회 (customer_profile 포함)
+        3. POST /api/v1/ma/context/turn - 대화 턴 저장
+        4. GET /api/v1/ma/context/history - 대화 이력 조회
+        5. PATCH /api/v1/ma/sessions/state - 세션 상태 업데이트
+        6. POST /api/v1/ma/sessions/close - 세션 종료
         """
 
         print("\n========== 데모 시나리오 API 테스트 시작 ==========")
 
-        # 1. POST /api/v1/agw/sessions - 세션 생성
-        print("\n[1] POST /api/v1/agw/sessions - 세션 생성")
+        # 1. POST /api/v1/agw/sessions - 세션 생성 (customer_profile 포함)
+        print("\n[1] POST /api/v1/agw/sessions - 세션 생성 (customer_profile 포함)")
         session_resp = client.post(
             "/api/v1/agw/sessions",
-            json={"global_session_key": "gsess_demo_test", "user_id": "user_vip_001", "channel": "web", "request_id": "req_demo_test"},
-            headers=agw_headers,
+            json={
+                "user_id": "user_vip_001",
+                "channel": "web",
+                "request_id": "req_demo_test",
+                "customer_profile": {
+                    "user_id": "user_vip_001",
+                    "segment": "VIP",
+                    "attributes": [
+                        {"key": "tier", "value": "platinum", "source_system": "CRM"},
+                        {"key": "preferred_language", "value": "ko", "source_system": "CRM"},
+                    ],
+                    "preferences": {"language": "ko"},
+                },
+            },
         )
         assert session_resp.status_code == 201, f"세션 생성 실패: {session_resp.json()}"
         session_data = session_resp.json()
@@ -76,32 +86,26 @@ class TestDemoScenarioSimple:
         print(f"      - context_id: {context_id}")
         print(f"      - session_state: {session_data['session_state']}")
         print(f"      - is_new: {session_data['is_new']}")
+        assert "customer_profile" in session_data, "세션 생성 응답에 customer_profile이 포함되어야 합니다."
+        assert session_data["customer_profile"]["segment"] == "VIP"
 
-        # 2. GET /api/v1/ma/sessions/resolve - 세션 조회
-        print("\n[2] GET /api/v1/ma/sessions/resolve - 세션 조회")
+        # 2. GET /api/v1/ma/sessions/resolve - 세션 조회 (customer_profile 포함)
+        print("\n[2] GET /api/v1/ma/sessions/resolve - 세션 조회 (customer_profile 포함)")
         resolve_resp = client.get(
-            "/api/v1/ma/sessions/resolve", params={"global_session_key": global_session_key, "channel": "web"}, headers=ma_headers
+            "/api/v1/ma/sessions/resolve", params={"global_session_key": global_session_key, "channel": "web"}
         )
         assert resolve_resp.status_code == 200, f"세션 조회 실패: {resolve_resp.json()}"
         resolve_data = resolve_resp.json()
         print("   ✅ 세션 조회 성공")
         print(f"      응답 데이터: {resolve_data}")
+        assert "customer_profile" in resolve_data, "세션 조회 응답에 customer_profile이 포함되어야 합니다."
+        assert resolve_data["customer_profile"]["user_id"] == "user_vip_001"
         # print(f"      - user_id: {resolve_data['session']['user_id']}")
         # print(f"      - session_state: {resolve_data['session']['session_state']}")
         # print(f"      - turn_count: {resolve_data['context']['turn_count']}")
 
-        # 3. GET /api/v1/ma/profiles/{user_id} - 프로파일 조회
-        print("\n[3] GET /api/v1/ma/profiles/user_vip_001 - 프로파일 조회")
-        profile_resp = client.get("/api/v1/ma/profiles/user_vip_001", headers=ma_headers)
-        assert profile_resp.status_code == 200, f"프로파일 조회 실패: {profile_resp.json()}"
-        profile_data = profile_resp.json()
-        print("   ✅ 프로파일 조회 성공")
-        print(f"      - user_id: {profile_data['user_id']}")
-        print(f"      - segment: {profile_data['profile']['segment']}")
-        print(f"      - attributes 수: {len(profile_data['profile']['attributes'])}")
-
-        # 4. POST /api/v1/ma/context/turn - 대화 턴 저장 (사용자)
-        print("\n[4] POST /api/v1/ma/context/turn - 대화 턴 저장 (사용자)")
+        # 3. POST /api/v1/ma/context/turn - 대화 턴 저장 (사용자)
+        print("\n[3] POST /api/v1/ma/context/turn - 대화 턴 저장 (사용자)")
         user_turn_resp = client.post(
             "/api/v1/ma/context/turn",
             json={
@@ -114,7 +118,6 @@ class TestDemoScenarioSimple:
                     "timestamp": datetime.now(UTC).isoformat(),
                 },
             },
-            headers=ma_headers,
         )
         assert user_turn_resp.status_code == 201, f"대화 턴 저장 실패: {user_turn_resp.json()}"
         user_turn_data = user_turn_resp.json()
@@ -122,8 +125,8 @@ class TestDemoScenarioSimple:
         print(f"      - turn_id: {user_turn_data['turn_id']}")
         print(f"      - saved_at: {user_turn_data['saved_at']}")
 
-        # 5. PATCH /api/v1/ma/sessions/state - 세션 상태 업데이트
-        print("\n[5] PATCH /api/v1/ma/sessions/state - 세션 상태 업데이트")
+        # 4. PATCH /api/v1/ma/sessions/state - 세션 상태 업데이트
+        print("\n[4] PATCH /api/v1/ma/sessions/state - 세션 상태 업데이트")
         state_resp = client.patch(
             "/api/v1/ma/sessions/state",
             json={
@@ -133,7 +136,6 @@ class TestDemoScenarioSimple:
                 "session_state": "talk",
                 "state_patch": {"subagent_status": "continue", "last_agent_id": "sa_exchange", "last_agent_type": "task"},
             },
-            headers=ma_headers,
         )
         assert state_resp.status_code == 200, f"세션 상태 업데이트 실패: {state_resp.json()}"
         state_data = state_resp.json()
@@ -141,8 +143,8 @@ class TestDemoScenarioSimple:
         print(f"      - status: {state_data['status']}")
         print(f"      - updated_at: {state_data['updated_at']}")
 
-        # 6. POST /api/v1/ma/context/turn - 대화 턴 저장 (어시스턴트)
-        print("\n[6] POST /api/v1/ma/context/turn - 대화 턴 저장 (어시스턴트)")
+        # 5. POST /api/v1/ma/context/turn - 대화 턴 저장 (어시스턴트)
+        print("\n[5] POST /api/v1/ma/context/turn - 대화 턴 저장 (어시스턴트)")
         assistant_turn_resp = client.post(
             "/api/v1/ma/context/turn",
             json={
@@ -155,7 +157,6 @@ class TestDemoScenarioSimple:
                     "timestamp": datetime.now(UTC).isoformat(),
                 },
             },
-            headers=ma_headers,
         )
         assert assistant_turn_resp.status_code == 201, f"대화 턴 저장 실패: {assistant_turn_resp.json()}"
         assistant_turn_data = assistant_turn_resp.json()
@@ -163,10 +164,10 @@ class TestDemoScenarioSimple:
         print(f"      - turn_id: {assistant_turn_data['turn_id']}")
         print(f"      - saved_at: {assistant_turn_data['saved_at']}")
 
-        # 7. GET /api/v1/ma/context/history - 대화 이력 조회
-        print("\n[7] GET /api/v1/ma/context/history - 대화 이력 조회")
+        # 6. GET /api/v1/ma/context/history - 대화 이력 조회
+        print("\n[6] GET /api/v1/ma/context/history - 대화 이력 조회")
         history_resp = client.get(
-            "/api/v1/ma/context/history", params={"global_session_key": global_session_key, "context_id": context_id}, headers=ma_headers
+            "/api/v1/ma/context/history", params={"global_session_key": global_session_key, "context_id": context_id}
         )
         assert history_resp.status_code == 200, f"대화 이력 조회 실패: {history_resp.json()}"
         history_data = history_resp.json()
@@ -176,8 +177,8 @@ class TestDemoScenarioSimple:
         for turn in history_data["turns"]:
             print(f"        [{turn['turn_id']}] {turn['role']}: {turn['content'][:30]}...")
 
-        # 8. POST /api/v1/ma/sessions/close - 세션 종료
-        print("\n[8] POST /api/v1/ma/sessions/close - 세션 종료")
+        # 7. POST /api/v1/ma/sessions/close - 세션 종료
+        print("\n[7] POST /api/v1/ma/sessions/close - 세션 종료")
         close_resp = client.post(
             "/api/v1/ma/sessions/close",
             json={
@@ -186,7 +187,6 @@ class TestDemoScenarioSimple:
                 "close_reason": "task_completed",
                 "final_summary": "환율 조건부 환전 완료",
             },
-            headers=ma_headers,
         )
         assert close_resp.status_code == 200, f"세션 종료 실패: {close_resp.json()}"
         close_data = close_resp.json()
@@ -202,9 +202,8 @@ class TestDemoAPISummary:
     def test_list_demo_apis(self):
         """데모 시나리오에서 사용되는 API 목록 출력"""
         apis = [
-            ("POST", "/api/v1/agw/sessions", "세션 생성"),
-            ("GET", "/api/v1/ma/sessions/resolve", "세션 조회"),
-            ("GET", "/api/v1/ma/profiles/{user_id}", "프로파일 조회"),
+            ("POST", "/api/v1/agw/sessions", "세션 생성 (customer_profile 포함)"),
+            ("GET", "/api/v1/ma/sessions/resolve", "세션 조회 (customer_profile 포함)"),
             ("POST", "/api/v1/ma/context/turn", "대화 턴 저장"),
             ("GET", "/api/v1/ma/context/history", "대화 이력 조회"),
             ("PATCH", "/api/v1/ma/sessions/state", "세션 상태 업데이트"),
@@ -214,5 +213,5 @@ class TestDemoAPISummary:
         print("\n========== 데모 시나리오 사용 API 목록 ==========")
         for idx, (method, endpoint, description) in enumerate(apis, 1):
             print(f"{idx}. {method:6} {endpoint:40} - {description}")
-        print(f"\n총 {len(apis)}개 API 사용")
+        print(f"\n총 {len(apis)}개 API 사용 (Session Manager 핵심 흐름)")
         print("=" * 60 + "\n")

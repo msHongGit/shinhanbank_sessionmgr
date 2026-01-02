@@ -97,18 +97,22 @@ uv run pytest tests/test_integration.py -v
 > **데모 시나리오 테스트**: `tests/test_demo_scenario.py`는 Sprint 2 데모에서 사용되는 7개 API만 순차적으로 테스트합니다.
 > 상세 내용은 [DEMO_SCENARIO_V2.md](docs/DEMO_SCENARIO_V2.md) 참고
 
-## 🔑 API Key 구성
 
-각 호출자별로 별도 API Key 사용:
+## 🔑 Sprint 2 인증 정책
 
-| 호출자 | 헤더 | API Key |
-|--------|------|---------|
-| AGW | X-API-Key | agw-api-key |
-| MA | X-API-Key | ma-api-key |
+Sprint 2 dev/demo 환경에서는 **API Key 인증이 비활성화**되어 있습니다.
+
+- `.env`에서 `ENABLE_API_KEY_AUTH=false`로 설정되어 있으면, 모든 API는 인증 없이 호출 가능합니다.
+- 운영/보안 환경에서는 `ENABLE_API_KEY_AUTH=true`로 변경 후, 각 호출자별 API Key를 반드시 설정해야 합니다.
+
+| 호출자 | 헤더 | API Key (운영시) |
+|--------|------|-----------------|
+| AGW    | X-API-Key | agw-api-key    |
+| MA     | X-API-Key | ma-api-key     |
 | Portal | X-API-Key | portal-api-key |
-| VDB | X-API-Key | vdb-api-key |
+| VDB    | X-API-Key | vdb-api-key    |
 
-> `.env` 파일로 2 완료 현황
+> Sprint 2 dev/demo에서는 X-API-Key 헤더 없이 호출해도 정상 동작합니다. 운영 전환 시에만 인증을 활성화하세요.
 
 ✅ **Repository Pattern**
 - ABC 인터페이스 정의 (base.py)
@@ -206,11 +210,12 @@ uv run pytest tests/test_integration.py -v
 
 ## � Sprint 2 API 필수값 정리
 
-### 데모에서 사용하는 7개 API 필수/옵션 필드
+### 데모에서 사용하는 6개 API 필수/옵션 필드
 
 1. **POST /api/v1/agw/sessions** (세션 생성)
-   - 필수: `global_session_key`, `user_id`, `channel`
-   - 옵션: `request_id`, `device_info`
+   - 필수: `user_id`, `channel`
+   - 옵션: `request_id`, `device_info`, `customer_profile`
+   - 참고: `global_session_key`는 Session Manager가 자동 생성하여 응답에 포함
 
 2. **GET /api/v1/ma/sessions/resolve** (세션 조회)
    - 필수: `global_session_key` (query)

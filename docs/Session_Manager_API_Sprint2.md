@@ -2,8 +2,90 @@
 
 > **Sprint 2 구현 기준** - Mock Repository 기반  
 > **Session Manager 역할**: API 제공 (Passive) - 요청을 받아 응답만 함  
-> **세션 키 전략**: Client가 Global Session Key 생성 (`gsess_{timestamp}_{uuid}`)  
+> **세션 키 전략**: Session Manager가 Global Session Key 자동 생성하여 반환 (`gsess_{timestamp}_{uuid}`)  
 > **Local Session Key**: Sprint 3+ 구현 예정
+
+---
+
+## 🌐 환경별 Base URL
+
+| 환경 | Base URL | 비고 |
+|------|----------|------|
+| **로컬 개발** | `http://localhost:8000` | `uv run uvicorn app.main:app` |
+| **Docker 로컬** | `http://localhost:8000` | `docker run -p 8000:8000` |
+| **Azure Dev** | `https://session-manager-dev.shinhan.azure.com` | AKS + Ingress |
+| **Azure Prod** | `https://session-manager.shinhan.azure.com` | Production |
+
+### 예시 호출 (환경별)
+
+```bash
+# 로컬 개발
+curl http://localhost:8000/health
+
+# Azure Dev
+curl https://session-manager-dev.shinhan.azure.com/health
+
+# Azure Prod
+curl https://session-manager.shinhan.azure.com/health
+```
+
+### 인증 (API Key)
+
+⚠️ **Sprint 2 Dev/Demo 환경**: API 키 인증이 **기본 비활성화**되어 있습니다 (`ENABLE_API_KEY_AUTH=false`).  
+운영 환경 전환 시에는 `.env`에서 `ENABLE_API_KEY_AUTH=true`로 설정하고 각 호출자별 API 키를 반드시 구성해야 합니다.
+
+| 환경 | AGW API Key | MA API Key | 관리 위치 |
+|------|------------|-----------|----------|
+| **로컬/테스트** | (비활성화) | (비활성화) | `.env`에서 `ENABLE_API_KEY_AUTH=false` |
+| **Azure Dev** | Kubernetes Secret | Kubernetes Secret | `session-manager-secrets` |
+| **Azure Prod** | Key Vault | Key Vault | Azure Key Vault 관리 |
+
+```bash
+# Dev 환경 API Key 확인
+kubectl get secret session-manager-secrets -n shinhan-dev \
+  -o jsonpath='{.data.AGW_API_KEY}' | base64 -d
+```
+
+### 데이터 저장소
+
+| Sprint | 저장소 | 데이터 지속성 | 비고 |
+|--------|--------|-------------|------|
+| **Sprint 2** | Redis (+ 부분 Mock) | ⚠️ Redis 재시작 시 세션 데이터 초기화 가능 | 세션/컨텍스트/Local 세션 매핑은 Redis, 그 외 미이관 데이터는 Mock 사용 |
+| **Sprint 3+** (예정) | Redis + PostgreSQL | ✅ 영구 저장 | Prod부터 전체 영구 저장소 전환 |
+
+⚠️ **중요**
+- Sprint 2 기준으로 **Session/Context/Local Session Mapping은 Redis에 저장**합니다.
+- 아직 Redis로 옮기지 않은 데이터(예: 일부 프로파일 Mock 데이터)는 **In-Memory Mock Repository**를 계속 사용합니다.
+
+### Redis 연동 개요 (Session Manager)
+
+Session Manager는 Redis를 다음 시점에 사용합니다.
+
+- **세션 상태 (Session)**
+  - 키: `session:{global_session_key}` (Hash)
+  - 사용 시점:
+    - `POST /api/v1/agw/sessions` : 세션 생성/재사용 시 세션 Hash 저장 또는 조회
+    - `GET /api/v1/ma/sessions/resolve` : 세션 조회 시 Hash 조회
+    - `PATCH /api/v1/ma/sessions/state` : 세션 상태 업데이트 시 Hash 필드 업데이트
+    - `POST /api/v1/ma/sessions/close` : 세션 종료 시 상태/요약 정보 업데이트
+
+- **Global↔Local 세션 매핑**
+  - 키: `session_map:{global_session_key}:{agent_id}` (Hash)
+  - 사용 시점:
+    - `POST /api/v1/ma/sessions/local` : Local 세션 등록 시 매핑 Hash 저장
+    - `GET /api/v1/ma/sessions/local` : Local 세션 조회 시 매핑 Hash 조회
+    - `POST /api/v1/ma/sessions/close` : 세션 종료 시 Global 세션 기준 매핑 삭제 예정 (Sprint 3+ 확장)
+
+- **대화 컨텍스트 및 턴 이력**
+  - Context 메타데이터: 키 `context:{context_id}` (Hash)
+  - 턴 이력: 키 `context_turns:{context_id}` (List)
+  - 사용 시점:
+    - `POST /api/v1/agw/sessions` : 세션 생성 시 초기 Context 메타데이터 생성
+    - `POST /api/v1/ma/context/turn` : 턴 추가 시 List에 Append, Context `last_updated_at` 갱신
+    - `GET /api/v1/ma/context/history` : 대화 이력 조회 시 List 전체 조회
+    - `DELETE /api/v1/portal/context/{context_id}` : Context 및 턴 이력 삭제
+
+💡 **Task Queue용 Redis 키(`task_queue:*`)는 Master Agent용이며, Session Manager는 현재 사용하지 않습니다.**
 
 ---
 
@@ -51,13 +133,13 @@ VDB  ──(요청)──▶ Session Manager ──(응답)──▶ VDB
 ### 1.1 세션 생성
 
 **Endpoint**: `POST /api/v1/agw/sessions`  
-**설명**: Agent GW가 초기 세션을 생성합니다.  
-**인증**: `X-API-Key: {AGW_API_KEY}`
+**설명**: Agent GW가 초기 세션을 생성합니다. Session Manager가 Global Session Key를 자동 생성하여 반환합니다.  
+👉 **Demo 시연 구조에서는 AGW가 분리되어 있지 않으며, Master Agent(MA, Guardrail 포함)가 이 API를 직접 호출하여 세션을 생성합니다.**  
+**인증**: `X-API-Key: {AGW_API_KEY}` (Sprint 2 dev/demo에서는 비활성화)
 
 **Request Body**:
 ```json
 {
-  "global_session_key": "gsess_1735689600000_a1b2c3d4",  // 필수 - Client가 생성한 글로벌 세션 키
   "user_id": "user_vip_001",                           // 필수
   "channel": "web",                                    // 필수
   "device_info": {                                      // 옵션 (데모용)
@@ -72,11 +154,11 @@ VDB  ──(요청)──▶ Session Manager ──(응답)──▶ VDB
 **Request Fields**:
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
-| global_session_key | string | ✅ | 글로벌 세션 키 (Client가 UUID 기반으로 생성) |
 | user_id | string | ✅ | 사용자 ID |
 | channel | string | ✅ | 채널 (web, mobile, kiosk) |
 | device_info | object | ❌ | 디바이스 정보 (옵션) |
 | request_id | string | ❌ | 요청 추적 ID (옵션) |
+| customer_profile | object | ❌ | 고객 개인화 프로파일 스냅샷 (`CustomerProfile` 스키마, Demo 시 세션과 함께 전달) |
 
 **Response** (201 Created):
 ```json
@@ -101,6 +183,7 @@ VDB  ──(요청)──▶ Session Manager ──(응답)──▶ VDB
 | is_new | boolean | 신규 세션 여부 |
 | created_at | datetime | 생성 시간 (ISO 8601) |
 | expires_at | datetime | 만료 시간 (1시간 후) |
+| customer_profile | object | 세션에 저장된 고객 프로파일 (`CustomerProfile`) |
 
 **에러 응답**:
 ```json
@@ -159,16 +242,16 @@ X-API-Key: ma-api-key
 **Response Fields**:
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| session.global_session_key | string | 글로벌 세션 키 |
-| session.session_id | string | 세션 ID |
-| session.user_id | string | 사용자 ID |
-| session.channel | string | 채널 |
-| session.session_state | string | 세션 상태 (start/active/end) |
-| session.subagent_status | string | SubAgent 상태 (undefined/continue/end) |
-| session.last_event | string | 마지막 이벤트 |
-| context.context_id | string | Context ID |
-| context.turn_count | integer | 대화 턴 수 |
-| local_session | object/null | Local 세션 정보 (업무 Agent용) |
+| global_session_key | string | 글로벌 세션 키 |
+| local_session_key | string/null | Local 세션 키 (업무 Agent용) |
+| conversation_id | string | 세션에 연결된 대화 ID |
+| context_id | string | 세션에 연결된 Context ID |
+| session_state | string | 세션 상태 (start/talk/end) |
+| is_first_call | boolean | 세션 상태가 `start` 인지 여부 |
+| task_queue_status | string | Task Queue 상태 (null/notnull) |
+| subagent_status | string | SubAgent 상태 (undefined/continue/end) |
+| last_event | object/null | 마지막 이벤트 (`LastEvent`) |
+| customer_profile | object/null | 세션에 연결된 고객 프로파일 (`CustomerProfile`) |
 
 ---
 
