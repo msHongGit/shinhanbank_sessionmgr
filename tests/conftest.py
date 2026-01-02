@@ -3,10 +3,15 @@ Session Manager - Test Configuration and Fixtures (v4.0)
 Sprint 1: Mock Repository 사용
 """
 
+import os
 from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
+
+# CI 환경에서 Redis URL 설정 (GitHub Actions service container용)
+if "REDIS_URL" not in os.environ:
+    os.environ["REDIS_URL"] = "redis://localhost:6379/0"
 
 from app.config import settings
 
