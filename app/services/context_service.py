@@ -9,11 +9,11 @@ from app.config import settings
 from app.core.exceptions import ContextNotFoundError, SessionNotFoundError
 from app.repositories import (
     ContextRepositoryInterface,
-    SessionRepositoryInterface,
     MockContextRepository,
     MockSessionRepository,
     RedisContextRepository,
     RedisSessionRepository,
+    SessionRepositoryInterface,
 )
 from app.schemas.common import ConversationTurn
 from app.schemas.ma import (
