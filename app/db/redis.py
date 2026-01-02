@@ -22,8 +22,12 @@ def init_redis() -> None:
         decode_responses=True,
         max_connections=settings.REDIS_MAX_CONNECTIONS,
     )
-    _redis_client.ping()
-    print("✅ Redis connected (Sync)")
+    try:
+        _redis_client.ping()
+        print("✅ Redis connected (Sync)")
+    except Exception as e:
+        print(f"⚠️ Redis connection warning: {e}")
+        # Continue anyway - connection will be retried on first use
 
 
 def close_redis() -> None:
