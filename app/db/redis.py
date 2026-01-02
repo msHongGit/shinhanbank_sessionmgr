@@ -62,6 +62,9 @@ class RedisHelper:
 
     def set_session(self, global_session_key: str, data: dict[str, Any], ttl: int = None) -> None:
         """세션 저장"""
+        from app.config import get_settings
+
+        settings = get_settings()
         key = f"session:{global_session_key}"
         self.client.hset(key, mapping=data)
         self.client.expire(key, ttl or settings.SESSION_CACHE_TTL)
@@ -90,6 +93,9 @@ class RedisHelper:
 
     def set_session_mapping(self, global_session_key: str, agent_id: str, local_session_key: str, agent_type: str, ttl: int = None) -> str:
         """Global↔Local 세션 매핑 저장"""
+        from app.config import get_settings
+
+        settings = get_settings()
         mapping_key = f"session_map:{global_session_key}:{agent_id}"
         mapping_data = {
             "global_session_key": global_session_key,

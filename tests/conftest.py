@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 # 모든 환경에서 REDIS_URL 필수
 # - 로컬: .env 파일에 Azure Redis 설정
 # - CI: GitHub Actions workflow에서 설정
-
 from app.config import get_settings
 
 # Settings cache 초기화 (환경변수 반영)
