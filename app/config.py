@@ -40,7 +40,7 @@ SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production"
 ALLOWED_ORIGINS: list[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 # === Redis Configuration ===
-REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL: str = os.getenv("REDIS_URL", "rediss://:${REDIS_ACCESS_KEY}@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0")
 REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", "10"))
 
 # === TTL Settings ===
