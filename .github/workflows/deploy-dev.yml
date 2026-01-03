@@ -61,17 +61,11 @@ jobs:
     - name: Update Helm values (dev)
       run: |
         cd helm-chart/${{ secrets.CHART_PATH }}
-        
-        # values-dev.yaml 업데이트
-        if [ -f values-dev.yaml ]; then
-          sed -i "s|tag:.*|tag: ${{ steps.image-tag.outputs.IMAGE_TAG }}|" values-dev.yaml
-          echo "Updated values-dev.yaml:"
-          cat values-dev.yaml
-        else
-          echo "Warning: values-dev.yaml not found, creating from values.yaml"
-          cp values.yaml values-dev.yaml
-          sed -i "s|tag:.*|tag: ${{ steps.image-tag.outputs.IMAGE_TAG }}|" values-dev.yaml
-        fi
+
+        # values.yaml의 tag를 최신 이미지 태그로 업데이트 (AGW와 동일 패턴)
+        sed -i "s|tag:.*|tag: \"${{ steps.image-tag.outputs.IMAGE_TAG }}\"|" values.yaml
+        echo "Updated values.yaml:"
+        cat values.yaml
 
     - name: Commit and push chart changes
       run: |

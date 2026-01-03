@@ -18,14 +18,15 @@ def load_env_file():
                     key, value = line.split("=", 1)
                     key = key.strip()
                     value = value.strip()
-                    
+
                     # ${VAR} 형식의 변수 치환
                     def replace_var(match):
                         var_name = match.group(1)
                         return os.environ.get(var_name, match.group(0))
-                    
+
                     value = re.sub(r"\$\{([^}]+)\}", replace_var, value)
                     os.environ.setdefault(key, value)
+
 
 load_env_file()
 
