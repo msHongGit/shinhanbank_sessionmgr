@@ -1,5 +1,5 @@
-"""
-Session Manager - Session Service (v4.0 - Sync)
+"""Session Manager - Session Service (v4.0 - Sync).
+
 세션 관리 핵심 로직 (Sync 방식)
 """
 
@@ -7,7 +7,14 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from app.config import SESSION_CACHE_TTL, SESSION_MAP_TTL, GLOBAL_SESSION_PREFIX, CONVERSATION_ID_PREFIX, CONTEXT_ID_PREFIX, LOCAL_SESSION_PREFIX
+from app.config import (
+    CONTEXT_ID_PREFIX,
+    CONVERSATION_ID_PREFIX,
+    GLOBAL_SESSION_PREFIX,
+    LOCAL_SESSION_PREFIX,
+    SESSION_CACHE_TTL,
+    SESSION_MAP_TTL,
+)
 from app.core.exceptions import SessionNotFoundError
 from app.repositories import (
     ContextRepositoryInterface,

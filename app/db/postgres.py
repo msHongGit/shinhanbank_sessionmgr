@@ -8,7 +8,7 @@ from collections.abc import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-from app.config import DATABASE_URL, DB_POOL_SIZE, DB_MAX_OVERFLOW, DB_ECHO
+from app.config import DATABASE_URL, DB_ECHO, DB_MAX_OVERFLOW, DB_POOL_SIZE
 
 engine = create_engine(
     DATABASE_URL,

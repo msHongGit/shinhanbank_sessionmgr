@@ -12,6 +12,7 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
-.master_agent_workflow/
+master_agent_workflow/
 ./pytest_cache/
-./redis
+redis
+agw_workflwow/

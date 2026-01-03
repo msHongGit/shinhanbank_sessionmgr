@@ -5,7 +5,7 @@ Session Manager - API Dependencies (v3.0)
 
 from fastapi import Header, HTTPException
 
-from app.config import ENABLE_API_KEY_AUTH, AGW_API_KEY, MA_API_KEY, PORTAL_API_KEY, VDB_API_KEY
+from app.config import AGW_API_KEY, ENABLE_API_KEY_AUTH, MA_API_KEY, PORTAL_API_KEY, VDB_API_KEY
 from app.services.context_service import ContextService
 from app.services.profile_service import ProfileService
 from app.services.session_service import SessionService

@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
-from app.config import APP_ENV, DEBUG, API_PREFIX, ALLOWED_ORIGINS
+from app.config import ALLOWED_ORIGINS, API_PREFIX, APP_ENV, DEBUG
 from app.core.exceptions import SessionManagerError
 
 

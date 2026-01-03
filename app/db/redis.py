@@ -13,7 +13,7 @@ _redis_client: redis.Redis | None = None
 
 def init_redis() -> None:
     """Initialize Redis connection (Sync)"""
-    from app.config import REDIS_URL, REDIS_MAX_CONNECTIONS
+    from app.config import REDIS_MAX_CONNECTIONS, REDIS_URL
 
     global _redis_client
     _redis_client = redis.from_url(
