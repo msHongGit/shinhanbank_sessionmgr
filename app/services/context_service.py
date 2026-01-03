@@ -5,7 +5,6 @@ Session Manager - Context Service (v4.0 - Sync)
 
 from datetime import UTC, datetime
 
-from app.config import settings
 from app.core.exceptions import ContextNotFoundError, SessionNotFoundError
 from app.repositories import (
     ContextRepositoryInterface,

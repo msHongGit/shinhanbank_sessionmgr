@@ -13,15 +13,14 @@ _redis_client: redis.Redis | None = None
 
 def init_redis() -> None:
     """Initialize Redis connection (Sync)"""
-    from app.config import get_settings
+    from app.config import REDIS_URL, REDIS_MAX_CONNECTIONS
 
-    settings = get_settings()
     global _redis_client
     _redis_client = redis.from_url(
-        settings.REDIS_URL,
+        REDIS_URL,
         encoding="utf-8",
         decode_responses=True,
-        max_connections=settings.REDIS_MAX_CONNECTIONS,
+        max_connections=REDIS_MAX_CONNECTIONS,
     )
     try:
         _redis_client.ping()
@@ -62,12 +61,11 @@ class RedisHelper:
 
     def set_session(self, global_session_key: str, data: dict[str, Any], ttl: int = None) -> None:
         """세션 저장"""
-        from app.config import get_settings
+        from app.config import SESSION_CACHE_TTL
 
-        settings = get_settings()
         key = f"session:{global_session_key}"
         self.client.hset(key, mapping=data)
-        self.client.expire(key, ttl or settings.SESSION_CACHE_TTL)
+        self.client.expire(key, ttl or SESSION_CACHE_TTL)
 
     def delete_session(self, global_session_key: str) -> None:
         """세션 삭제"""
@@ -93,9 +91,8 @@ class RedisHelper:
 
     def set_session_mapping(self, global_session_key: str, agent_id: str, local_session_key: str, agent_type: str, ttl: int = None) -> str:
         """Global↔Local 세션 매핑 저장"""
-        from app.config import get_settings
+        from app.config import SESSION_MAP_TTL
 
-        settings = get_settings()
         mapping_key = f"session_map:{global_session_key}:{agent_id}"
         mapping_data = {
             "global_session_key": global_session_key,
@@ -104,7 +101,7 @@ class RedisHelper:
             "agent_type": agent_type,
         }
         self.client.hset(mapping_key, mapping=mapping_data)
-        self.client.expire(mapping_key, ttl or settings.SESSION_MAP_TTL)
+        self.client.expire(mapping_key, ttl or SESSION_MAP_TTL)
         return mapping_key
 
     def get_session_mapping(self, global_session_key: str, agent_id: str) -> dict[str, Any] | None:

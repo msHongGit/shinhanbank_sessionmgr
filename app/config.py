@@ -2,60 +2,68 @@
 Session Manager - Configuration Settings (v3.0)
 """
 
-from functools import lru_cache
+import os
+from pathlib import Path
 
-from pydantic import ConfigDict
-from pydantic_settings import BaseSettings
+# === .env 파일 로드 (로컬 개발용) ===
+def load_env_file():
+    """Load .env file for local development with variable expansion"""
+    import re
+    env_file = Path(__file__).parent.parent / '.env'
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # ${VAR} 형식의 변수 치환
+                    def replace_var(match):
+                        var_name = match.group(1)
+                        return os.environ.get(var_name, match.group(0))
+                    
+                    value = re.sub(r'\$\{([^}]+)\}', replace_var, value)
+                    os.environ.setdefault(key, value)
 
+load_env_file()
 
-class Settings(BaseSettings):
-    """Application settings"""
+# === Application Settings ===
+APP_ENV: str = os.getenv('APP_ENV', 'dev')
+DEBUG: bool = os.getenv('DEBUG', 'true').lower() == 'true'
+API_PREFIX: str = os.getenv('API_PREFIX', '/api/v1')
+SECRET_KEY: str = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
 
-    # App
-    APP_ENV: str = "dev"
-    DEBUG: bool = True
-    API_PREFIX: str = "/api/v1"
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+# === CORS ===
+ALLOWED_ORIGINS: list[str] = os.getenv('ALLOWED_ORIGINS', '*').split(',')
 
-    # CORS
-    ALLOWED_ORIGINS: list[str] = ["*"]
+# === Redis Configuration ===
+REDIS_URL: str = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+REDIS_MAX_CONNECTIONS: int = int(os.getenv('REDIS_MAX_CONNECTIONS', '10'))
 
-    # Redis (Azure Redis Cache - 환경변수 필수)
-    REDIS_URL: str
-    REDIS_MAX_CONNECTIONS: int = 10
+# === TTL Settings ===
+SESSION_CACHE_TTL: int = int(os.getenv('SESSION_CACHE_TTL', '3600'))
+LOCAL_SESSION_TTL: int = int(os.getenv('LOCAL_SESSION_TTL', '1800'))
+SESSION_MAP_TTL: int = int(os.getenv('SESSION_MAP_TTL', '3600'))
 
-    # TTL Settings
-    SESSION_CACHE_TTL: int = 3600  # 1 hour - Global Session
-    LOCAL_SESSION_TTL: int = 1800  # 30 min - Local Session
-    SESSION_MAP_TTL: int = 3600  # 1 hour - Global↔Local 매핑
+# === PostgreSQL (향후 사용) ===
+DATABASE_URL: str = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/session_manager')
+DB_POOL_SIZE: int = int(os.getenv('DB_POOL_SIZE', '5'))
+DB_MAX_OVERFLOW: int = int(os.getenv('DB_MAX_OVERFLOW', '10'))
+DB_ECHO: bool = os.getenv('DB_ECHO', 'false').lower() == 'true'
 
-    # PostgreSQL
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/session_manager"
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 10
-    DB_ECHO: bool = False
+# === Session ID Prefix ===
+GLOBAL_SESSION_PREFIX: str = os.getenv('GLOBAL_SESSION_PREFIX', 'gsess')
+LOCAL_SESSION_PREFIX: str = os.getenv('LOCAL_SESSION_PREFIX', 'lsess')
+CONVERSATION_ID_PREFIX: str = os.getenv('CONVERSATION_ID_PREFIX', 'conv')
+CONTEXT_ID_PREFIX: str = os.getenv('CONTEXT_ID_PREFIX', 'ctx')
 
-    # Session ID Prefix
-    GLOBAL_SESSION_PREFIX: str = "gsess"
-    LOCAL_SESSION_PREFIX: str = "lsess"
-    CONVERSATION_ID_PREFIX: str = "conv"
-    CONTEXT_ID_PREFIX: str = "ctx"
+# === API Keys (호출자별) ===
+AGW_API_KEY: str = os.getenv('AGW_API_KEY', 'agw-api-key')
+MA_API_KEY: str = os.getenv('MA_API_KEY', 'ma-api-key')
+PORTAL_API_KEY: str = os.getenv('PORTAL_API_KEY', 'portal-api-key')
+VDB_API_KEY: str = os.getenv('VDB_API_KEY', 'vdb-api-key')
 
-    # API Keys (호출자별)
-    AGW_API_KEY: str = "agw-api-key"
-    MA_API_KEY: str = "ma-api-key"
-    PORTAL_API_KEY: str = "portal-api-key"
-    VDB_API_KEY: str = "vdb-api-key"
-
-    # Auth (Sprint 2: 기본 비활성화, 운영에서만 활성화 권장)
-    ENABLE_API_KEY_AUTH: bool = False
-
-    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore")
-
-
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
-
-
-settings = get_settings()
+# === Auth (Sprint 2: 기본 비활성화, 운영에서만 활성화 권장) ===
+ENABLE_API_KEY_AUTH: bool = os.getenv('ENABLE_API_KEY_AUTH', 'false').lower() == 'true'

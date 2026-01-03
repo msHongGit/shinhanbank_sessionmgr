@@ -12,11 +12,7 @@ from fastapi.testclient import TestClient
 # 모든 환경에서 REDIS_URL 필수
 # - 로컬: .env 파일에 Azure Redis 설정
 # - CI: GitHub Actions workflow에서 설정
-from app.config import get_settings
-
-# Settings cache 초기화 (환경변수 반영)
-get_settings.cache_clear()
-settings = get_settings()
+from app.config import AGW_API_KEY, MA_API_KEY, PORTAL_API_KEY, VDB_API_KEY
 
 # v4.0: Mock Repository 사용으로 DB patching 불필요
 from app.main import app
@@ -57,25 +53,25 @@ def reset_mock_repositories():
 @pytest.fixture
 def agw_headers():
     """AGW API headers"""
-    return {"X-API-Key": settings.AGW_API_KEY, "Content-Type": "application/json"}
+    return {"X-API-Key": AGW_API_KEY, "Content-Type": "application/json"}
 
 
 @pytest.fixture
 def ma_headers():
     """MA API headers"""
-    return {"X-API-Key": settings.MA_API_KEY, "Content-Type": "application/json"}
+    return {"X-API-Key": MA_API_KEY, "Content-Type": "application/json"}
 
 
 @pytest.fixture
 def portal_headers():
     """Portal API headers"""
-    return {"X-API-Key": settings.PORTAL_API_KEY, "Content-Type": "application/json"}
+    return {"X-API-Key": PORTAL_API_KEY, "Content-Type": "application/json"}
 
 
 @pytest.fixture
 def vdb_headers():
     """VDB API headers"""
-    return {"X-API-Key": settings.VDB_API_KEY, "Content-Type": "application/json"}
+    return {"X-API-Key": VDB_API_KEY, "Content-Type": "application/json"}
 
 
 # ============ Sample Data ============

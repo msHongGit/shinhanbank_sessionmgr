@@ -7,7 +7,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from app.config import settings
+from app.config import SESSION_CACHE_TTL, SESSION_MAP_TTL, GLOBAL_SESSION_PREFIX, CONVERSATION_ID_PREFIX, CONTEXT_ID_PREFIX, LOCAL_SESSION_PREFIX
 from app.core.exceptions import SessionNotFoundError
 from app.repositories import (
     ContextRepositoryInterface,
@@ -83,10 +83,10 @@ class SessionService:
     def create_session(self, request: SessionCreateRequest) -> SessionCreateResponse:
         """초기 세션 생성 (AGW → SM) - Global Session Key 자동 생성"""
         # Session Manager가 Global Session Key 생성
-        global_session_key = self._generate_id(settings.GLOBAL_SESSION_PREFIX)
-        conversation_id = self._generate_id(settings.CONVERSATION_ID_PREFIX)
-        context_id = self._generate_id(settings.CONTEXT_ID_PREFIX)
-        expires_at = datetime.now(UTC) + timedelta(seconds=settings.SESSION_CACHE_TTL)
+        global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
+        conversation_id = self._generate_id(CONVERSATION_ID_PREFIX)
+        context_id = self._generate_id(CONTEXT_ID_PREFIX)
+        expires_at = datetime.now(UTC) + timedelta(seconds=SESSION_CACHE_TTL)
 
         profile_data = request.customer_profile.model_dump() if request.customer_profile else None
 
@@ -165,7 +165,7 @@ class SessionService:
         if not session:
             raise SessionNotFoundError(request.global_session_key)
 
-        expires_at = datetime.now(UTC) + timedelta(seconds=settings.SESSION_MAP_TTL)
+        expires_at = datetime.now(UTC) + timedelta(seconds=SESSION_MAP_TTL)
         mapping_id = self.session_repo.set_local_mapping(
             global_session_key=request.global_session_key,
             agent_id=request.agent_id,

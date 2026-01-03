@@ -5,7 +5,7 @@ Session Manager - API Dependencies (v3.0)
 
 from fastapi import Header, HTTPException
 
-from app.config import settings
+from app.config import ENABLE_API_KEY_AUTH, AGW_API_KEY, MA_API_KEY, PORTAL_API_KEY, VDB_API_KEY
 from app.services.context_service import ContextService
 from app.services.profile_service import ProfileService
 from app.services.session_service import SessionService
@@ -15,40 +15,40 @@ from app.services.session_service import SessionService
 
 def verify_agw_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> str:
     """AGW API Key 검증"""
-    if not settings.ENABLE_API_KEY_AUTH:
+    if not ENABLE_API_KEY_AUTH:
         # Sprint 2: API Key 인증 비활성화 모드
         return x_api_key or ""
-    if not x_api_key or x_api_key != settings.AGW_API_KEY:
+    if not x_api_key or x_api_key != AGW_API_KEY:
         raise HTTPException(status_code=401, detail={"code": "AUTH001", "message": "Invalid AGW API key"})
     return x_api_key
 
 
 def verify_ma_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> str:
     """MA API Key 검증"""
-    if not settings.ENABLE_API_KEY_AUTH:
+    if not ENABLE_API_KEY_AUTH:
         # Sprint 2: API Key 인증 비활성화 모드
         return x_api_key or ""
-    if not x_api_key or x_api_key != settings.MA_API_KEY:
+    if not x_api_key or x_api_key != MA_API_KEY:
         raise HTTPException(status_code=401, detail={"code": "AUTH002", "message": "Invalid MA API key"})
     return x_api_key
 
 
 def verify_portal_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> str:
     """Portal API Key 검증"""
-    if not settings.ENABLE_API_KEY_AUTH:
+    if not ENABLE_API_KEY_AUTH:
         # Sprint 2: API Key 인증 비활성화 모드
         return x_api_key or ""
-    if not x_api_key or x_api_key != settings.PORTAL_API_KEY:
+    if not x_api_key or x_api_key != PORTAL_API_KEY:
         raise HTTPException(status_code=401, detail={"code": "AUTH003", "message": "Invalid Portal API key"})
     return x_api_key
 
 
 def verify_vdb_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> str:
     """VDB API Key 검증"""
-    if not settings.ENABLE_API_KEY_AUTH:
+    if not ENABLE_API_KEY_AUTH:
         # Sprint 2: API Key 인증 비활성화 모드
         return x_api_key or ""
-    if not x_api_key or x_api_key != settings.VDB_API_KEY:
+    if not x_api_key or x_api_key != VDB_API_KEY:
         raise HTTPException(status_code=401, detail={"code": "AUTH004", "message": "Invalid VDB API key"})
     return x_api_key
 

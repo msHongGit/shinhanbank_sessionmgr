@@ -7,7 +7,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from app.config import settings
+from app.config import SESSION_CACHE_TTL, SESSION_MAP_TTL
 from app.db.redis import RedisHelper, get_redis_client
 from app.repositories.base import SessionRepositoryInterface
 
@@ -41,7 +41,7 @@ class RedisSessionRepository(SessionRepositoryInterface):
             return existing
 
         now = datetime.now(UTC)
-        expires_at = now + timedelta(seconds=settings.SESSION_CACHE_TTL)
+        expires_at = now + timedelta(seconds=SESSION_CACHE_TTL)
 
         session: dict[str, Any] = {
             "session_id": global_session_key,
@@ -62,7 +62,7 @@ class RedisSessionRepository(SessionRepositoryInterface):
             # 세션에 개인화 프로파일 스냅샷 저장 (JSON 직렬화)
             session["customer_profile"] = json.dumps(customer_profile)
 
-        self.helper.set_session(global_session_key, session, ttl=settings.SESSION_CACHE_TTL)
+        self.helper.set_session(global_session_key, session, ttl=SESSION_CACHE_TTL)
 
         return session
 
@@ -94,7 +94,7 @@ class RedisSessionRepository(SessionRepositoryInterface):
             agent_id=agent_id,
             local_session_key=local_session_key,
             agent_type=agent_type,
-            ttl=settings.SESSION_MAP_TTL,
+            ttl=SESSION_MAP_TTL,
         )
 
     def get_local_mapping(self, global_session_key: str, agent_id: str) -> dict[str, Any] | None:
