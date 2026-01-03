@@ -1,15 +1,11 @@
 # Session Manager Sprint 2 - Dockerfile
 FROM python:3.11-slim
 
-# Build argument for Mock mode
-ARG USE_MOCK_DB=true
-
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    USE_MOCK_DB=${USE_MOCK_DB}
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 

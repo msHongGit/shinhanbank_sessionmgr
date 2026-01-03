@@ -43,8 +43,8 @@ jobs:
 
     - name: Run tests
       env:
-        USE_MOCK_DB: "true"
         APP_ENV: "test"
+        REDIS_URL: ${{ secrets.REDIS_URL }}
         AGW_API_KEY: "test-agw-key"
         MA_API_KEY: "test-ma-key"
         PORTAL_API_KEY: "test-portal-key"
@@ -79,8 +79,6 @@ jobs:
         tags: |
           ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.IMAGE_TAG }}
           ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:dev-latest
-        build-args: |
-          USE_MOCK_DB=true
         cache-from: type=registry,ref=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:dev-buildcache
         cache-to: type=registry,ref=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:dev-buildcache,mode=max
 

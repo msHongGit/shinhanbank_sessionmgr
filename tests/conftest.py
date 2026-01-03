@@ -1,6 +1,6 @@
 """
 Session Manager - Test Configuration and Fixtures (v4.0)
-Sprint 1: Mock Repository 사용
+Sprint 2: Redis Integration Tests
 """
 
 import os

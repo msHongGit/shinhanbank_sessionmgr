@@ -17,9 +17,6 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api/v1"
     SECRET_KEY: str = "your-secret-key-change-in-production"
 
-    # Sprint 2: Mock/DB 토글 (세션/컨텍스트/매핑에는 사용하지 않고 프로파일에만 사용, 향후 Context DB 도입 시 제거 예정)
-    USE_MOCK_DB: bool = True
-
     # CORS
     ALLOWED_ORIGINS: list[str] = ["*"]
 

@@ -59,7 +59,6 @@ jobs:
 
     - name: Run pytest with coverage
       env:
-        USE_MOCK_DB: "true"
         APP_ENV: "test"
         ENABLE_API_KEY_AUTH: "false"
         REDIS_URL: ${{ secrets.REDIS_URL }}
