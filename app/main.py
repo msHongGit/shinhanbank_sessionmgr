@@ -97,6 +97,16 @@ def session_manager_exception_handler(request, exc: SessionManagerError):
     )
 
 
+@app.get("/", tags=["Health"])
+def root_health_check():
+    return {
+        "status": "healthy",
+        "service": "session-manager",
+        "version": "4.0.0",
+        "mode": "mock",  # Sprint 1
+    }
+
+
 @app.get("/health", tags=["Health"])
 def health_check():
     return {
@@ -118,4 +128,4 @@ app.include_router(api_router, prefix=API_PREFIX)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=DEBUG)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=DEBUG)
