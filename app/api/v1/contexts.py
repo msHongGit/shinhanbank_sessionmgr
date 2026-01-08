@@ -5,7 +5,7 @@ Sprint 3: Context & Turn 엔드포인트
 
 from fastapi import APIRouter, Depends
 
-from app.repositories import ContextRepositoryInterface, MariaDBContextRepository
+from app.repositories import ContextRepositoryInterface, RedisContextRepository
 from app.schemas.contexts import (
     ContextCreate,
     ContextResponse,
@@ -23,8 +23,8 @@ router = APIRouter(prefix="/contexts", tags=["Contexts"])
 
 
 def get_context_repo() -> ContextRepositoryInterface:
-    """ContextRepository 의존성 - MariaDB 사용"""
-    return MariaDBContextRepository()
+    """ContextRepository 의존성 - Redis 사용 (실시간 컨텍스트/턴 관리)."""
+    return RedisContextRepository()
 
 
 # ============ Context CRUD ============
