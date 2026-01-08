@@ -99,10 +99,11 @@ class MockSessionRepository(SessionRepositoryInterface):
         self._local_mappings[mapping_key] = {
             "mapping_id": mapping_id,
             "global_session_key": global_session_key,
-            "local_session_key": local_session_key,
+            "agent_session_key": local_session_key,  # API 스키마에서 agent_session_key로 사용
             "agent_id": agent_id,
             "agent_type": agent_type,
             "created_at": datetime.now(UTC).isoformat(),
+            "last_used_at": datetime.now(UTC).isoformat(),
         }
 
         return mapping_id

@@ -34,6 +34,7 @@ class RedisSessionRepository(SessionRepositoryInterface):
         task_queue_status: str,
         subagent_status: str,
         customer_profile: dict[str, Any] | None = None,
+        profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """세션 생성 (존재 시 기존 세션 반환)"""
         existing = self.helper.get_session(global_session_key)
@@ -53,6 +54,7 @@ class RedisSessionRepository(SessionRepositoryInterface):
             "session_state": session_state,
             "task_queue_status": task_queue_status,
             "subagent_status": subagent_status,
+            "profile": json.dumps(profile or {}),
             "expires_at": expires_at.isoformat(),
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),

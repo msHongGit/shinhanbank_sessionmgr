@@ -22,12 +22,41 @@ from app.schemas import (
     CustomerProfile,
     ProfileAttribute,
 )
+from app.services.session_service import SessionService
 
 
 @pytest.fixture
 def client():
-    """FastAPI TestClient"""
-    return TestClient(app)
+    """FastAPI TestClient with Mock Repository Dependency Overrides"""
+    from app.api.v1.agent_sessions import get_session_service as get_agent_session_service
+    from app.api.v1.contexts import get_context_repo
+    from app.api.v1.sessions import get_session_service
+
+    # Mock Repository 싱글톤 인스턴스
+    session_repo = MockSessionRepository()
+    context_repo = MockContextRepository()
+    profile_repo = MockProfileRepository()
+
+    # Dependency Override
+    def override_session_service():
+        return SessionService(
+            session_repo=session_repo,
+            context_repo=context_repo,
+            profile_repo=profile_repo,
+        )
+
+    def override_context_repo():
+        return context_repo
+
+    app.dependency_overrides[get_session_service] = override_session_service
+    app.dependency_overrides[get_agent_session_service] = override_session_service
+    app.dependency_overrides[get_context_repo] = override_context_repo
+
+    client = TestClient(app)
+    yield client
+
+    # Cleanup
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +71,7 @@ def reset_mock_repositories():
     session_repo._local_mappings.clear()
     context_repo._contexts.clear()
     context_repo._turns.clear()
-    # profile은 mock 데이터 유지
+    # profile은 mock 데이터 유지 (user_vip_001 등)
 
     yield
 

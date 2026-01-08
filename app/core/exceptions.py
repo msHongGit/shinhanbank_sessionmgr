@@ -92,6 +92,18 @@ class RedisConnectionError(SessionManagerError):
         )
 
 
+class InvalidStateTransitionError(SessionManagerError):
+    """Invalid session state transition"""
+
+    def __init__(self, from_state: str, to_state: str):
+        super().__init__(
+            code="SM006",
+            message="Invalid state transition",
+            detail=f"Cannot transition from '{from_state}' to '{to_state}'",
+            status_code=400,
+        )
+
+
 class DatabaseConnectionError(SessionManagerError):
     """Database connection error"""
 

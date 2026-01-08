@@ -10,6 +10,8 @@ pydantic-settings==2.1.0
 # Database
 sqlalchemy==2.0.25
 psycopg2-binary==2.9.9
+pymysql==1.1.0
+cryptography==42.0.0
 
 # Redis (Sync)
 redis==5.0.1

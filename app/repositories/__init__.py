@@ -24,3 +24,6 @@ __all__ = [
     "RedisSessionRepository",
     "RedisContextRepository",
 ]
+from app.repositories.mariadb_context_repository import MariaDBContextRepository
+
+__all__.append("MariaDBContextRepository")

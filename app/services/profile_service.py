@@ -7,9 +7,7 @@ from datetime import UTC, datetime
 
 from app.repositories.base import ProfileRepositoryInterface
 from app.repositories.mock import MockProfileRepository
-from app.schemas import CustomerProfile, ProfileAttribute
-from app.schemas.batch import BatchProfileError, BatchProfileRequest, BatchProfileResponse
-from app.schemas.ma import ProfileGetResponse
+from app.schemas.common import CustomerProfile, ProfileAttribute, ProfileGetResponse
 
 
 class ProfileService:
@@ -59,40 +57,6 @@ class ProfileService:
             user_id=user_id,
             profile=profile,
             computed_at=datetime.now(UTC),
-        )
-
-    # ============ Batch API (VDB) ============
-
-    def batch_upsert_profiles(self, request: BatchProfileRequest) -> BatchProfileResponse:
-        """고객 프로파일 배치 업로드 (VDB → SM)"""
-        processed_count = 0
-        failed_count = 0
-        errors: list[BatchProfileError] = []
-
-        profiles_to_upsert = []
-        for record in request.records:
-            for attr in record.attributes:
-                profiles_to_upsert.append(
-                    {
-                        "user_id": record.user_id,
-                        "attribute_key": attr.key,
-                        "attribute_value": attr.value,
-                        "source_system": attr.source_system or "VDB",
-                    }
-                )
-
-        try:
-            processed_count = self.profile_repo.batch_upsert(profiles_to_upsert)
-        except Exception as e:
-            failed_count = len(profiles_to_upsert)
-            errors.append(BatchProfileError(user_id="batch", error=str(e)))
-
-        return BatchProfileResponse(
-            batch_id=request.batch_id,
-            accepted=failed_count == 0,
-            processed_count=processed_count,
-            failed_count=failed_count,
-            errors=errors if errors else None,
         )
 
 

@@ -7,6 +7,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from fastapi import BackgroundTasks
+
 from app.config import (
     CONTEXT_ID_PREFIX,
     CONVERSATION_ID_PREFIX,
@@ -24,21 +26,22 @@ from app.repositories import (
     RedisSessionRepository,
     SessionRepositoryInterface,
 )
-from app.schemas import AgentType, CustomerProfile, SessionState, SubAgentStatus, TaskQueueStatus
-from app.schemas.agw import SessionCreateRequest, SessionCreateResponse
-from app.schemas.ma import (
+from app.schemas.common import (
+    AgentType,
+    CustomerProfile,
     LastEvent,
-    LocalSessionGetResponse,
-    LocalSessionRegisterRequest,
-    LocalSessionRegisterResponse,
     SessionCloseRequest,
     SessionCloseResponse,
+    SessionCreateRequest,
+    SessionCreateResponse,
     SessionPatchRequest,
     SessionPatchResponse,
     SessionResolveRequest,
     SessionResolveResponse,
+    SessionState,
+    SubAgentStatus,
+    TaskQueueStatus,
 )
-from app.schemas.portal import SessionListItem, SessionListResponse
 
 
 class SessionService:
@@ -48,15 +51,18 @@ class SessionService:
         self,
         session_repo: SessionRepositoryInterface | None = None,
         context_repo: ContextRepositoryInterface | None = None,
+        profile_repo=None,
     ):
         if session_repo is not None and context_repo is not None:
             self.session_repo = session_repo
             self.context_repo = context_repo
+            self.profile_repo = profile_repo
             return
 
         # Sprint 2: 세션/컨텍스트/세션 매핑은 항상 Redis를 사용
         self.session_repo = RedisSessionRepository()
         self.context_repo = RedisContextRepository()
+        self.profile_repo = None  # Production에서는 HybridProfileRepository 사용
 
     def _generate_id(self, prefix: str) -> str:
         """ID 생성"""
@@ -87,16 +93,38 @@ class SessionService:
 
     # ============ AGW API ============
 
-    def create_session(self, request: SessionCreateRequest) -> SessionCreateResponse:
-        """초기 세션 생성 (AGW → SM) - Global Session Key 자동 생성"""
+    def create_session(self, request: SessionCreateRequest, background_tasks: BackgroundTasks | None = None) -> SessionCreateResponse:
+        """초기 세션 생성 (AGW → SM) - Global Session Key 자동 생성
+
+        세션 생성 흐름:
+        1. 세션 객체 생성
+        2. 고객 프로파일 조회 (MariaDB context_db에서)
+        3. Redis 즉시 저장 (세션 스냅샷)
+        4. Context 생성
+        5. MariaDB 비동기 저장
+        """
         # Session Manager가 Global Session Key 생성
         global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
         conversation_id = self._generate_id(CONVERSATION_ID_PREFIX)
         context_id = self._generate_id(CONTEXT_ID_PREFIX)
         expires_at = datetime.now(UTC) + timedelta(seconds=SESSION_CACHE_TTL)
 
-        profile_data = request.customer_profile.model_dump() if request.customer_profile else None
+        # 고객 프로파일 조회 (MariaDB context_db 또는 Mock Repository)
+        customer_profile_response = None
+        profile_data = None
+        if self.profile_repo:
+            customer_profile = self.profile_repo.get_profile(
+                user_id=request.user_id,
+                context_id=context_id,
+                background_tasks=background_tasks,
+            )
+            if customer_profile:
+                # Redis 스냅샷 저장용 raw dict
+                profile_data = customer_profile.model_dump()
+                # 응답에는 schemas.common.CustomerProfile 그대로 사용
+                customer_profile_response = customer_profile
 
+        # Redis 즉시 저장 (세션 스냅샷)
         self.session_repo.create(
             global_session_key=global_session_key,
             user_id=request.user_id,
@@ -109,20 +137,24 @@ class SessionService:
             customer_profile=profile_data,
         )
 
+        # Context 생성
         self.context_repo.create(
             context_id=context_id,
             global_session_key=global_session_key,
             user_id=request.user_id,
         )
 
+        # TODO: MariaDB 비동기 저장
+        # if background_tasks:
+        #     background_tasks.add_task(self._save_session_to_mariadb, global_session_key)
+
         return SessionCreateResponse(
             global_session_key=global_session_key,
-            conversation_id=conversation_id,
             context_id=context_id,
             session_state=SessionState.START,
             expires_at=expires_at,
             is_new=True,
-            customer_profile=request.customer_profile,
+            customer_profile=customer_profile_response,
         )
 
     # ============ MA API ============
@@ -134,14 +166,16 @@ class SessionService:
         if not session:
             raise SessionNotFoundError(request.global_session_key)
 
-        local_session_key = None
+        agent_session_key = None
         if request.agent_type == AgentType.TASK and request.agent_id:
             mapping = self.session_repo.get_local_mapping(
                 request.global_session_key,
                 request.agent_id,
             )
             if mapping:
-                local_session_key = mapping.get("local_session_key")
+                # RedisSessionRepository는 "local_session_key"를, MockSessionRepository는
+                # "agent_session_key"를 사용하므로 모두 지원하도록 처리
+                agent_session_key = mapping.get("local_session_key") or mapping.get("agent_session_key")
 
         task_queue_status = TaskQueueStatus(session.get("task_queue_status", "null"))
 
@@ -155,7 +189,7 @@ class SessionService:
 
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
-            local_session_key=local_session_key,
+            agent_session_key=agent_session_key,
             conversation_id=session.get("conversation_id", ""),
             context_id=session.get("context_id", ""),
             session_state=SessionState(session.get("session_state", "start")),
@@ -166,49 +200,14 @@ class SessionService:
             customer_profile=self._load_customer_profile(session),
         )
 
-    def register_local_session(self, request: LocalSessionRegisterRequest) -> LocalSessionRegisterResponse:
-        """Local 세션 등록 (MA → SM)"""
-        session = self.session_repo.get(request.global_session_key)
-        if not session:
-            raise SessionNotFoundError(request.global_session_key)
+    def patch_session_state(self, request: SessionPatchRequest, background_tasks: BackgroundTasks | None = None) -> SessionPatchResponse:
+        """세션 상태 업데이트 (MA → SM)
 
-        expires_at = datetime.now(UTC) + timedelta(seconds=SESSION_MAP_TTL)
-        mapping_id = self.session_repo.set_local_mapping(
-            global_session_key=request.global_session_key,
-            agent_id=request.agent_id,
-            local_session_key=request.local_session_key,
-            agent_type=request.agent_type.value,
-        )
-
-        return LocalSessionRegisterResponse(
-            status="success",
-            mapping_id=mapping_id,
-            expires_at=expires_at,
-        )
-
-    def get_local_session(self, global_session_key: str, agent_id: str) -> LocalSessionGetResponse:
-        """Local 세션 조회 (MA → SM)"""
-        mapping = self.session_repo.get_local_mapping(global_session_key, agent_id)
-
-        if mapping:
-            return LocalSessionGetResponse(
-                global_session_key=global_session_key,
-                local_session_key=mapping.get("local_session_key"),
-                agent_id=agent_id,
-                agent_type=AgentType(mapping.get("agent_type")) if mapping.get("agent_type") else None,
-                is_active=True,
-            )
-
-        return LocalSessionGetResponse(
-            global_session_key=global_session_key,
-            local_session_key=None,
-            agent_id=agent_id,
-            agent_type=None,
-            is_active=False,
-        )
-
-    def patch_session_state(self, request: SessionPatchRequest) -> SessionPatchResponse:
-        """세션 상태 업데이트 (MA → SM)"""
+        세션 업데이트 흐름:
+        1. 세션 상태 업데이트
+        2. Redis 즉시 저장 (세션 스냅샷)
+        3. MariaDB 비동기 저장
+        """
         session = self.session_repo.get(request.global_session_key)
         if not session:
             raise SessionNotFoundError(request.global_session_key)
@@ -239,12 +238,32 @@ class SessionService:
             }
             updates["last_event"] = json.dumps(last_event)
 
+        # Agent 세션 매핑 등록 (세션 상태 업데이트 시 함께 처리)
+        if patch.agent_session_key and patch.last_agent_id:
+            agent_type_value = patch.last_agent_type.value if patch.last_agent_type else AgentType.TASK.value
+            self.session_repo.set_local_mapping(
+                global_session_key=request.global_session_key,
+                agent_id=patch.last_agent_id,
+                local_session_key=patch.agent_session_key,
+                agent_type=agent_type_value,
+            )
+
         self.session_repo.update(request.global_session_key, **updates)
+
+        # TODO: MariaDB 비동기 저장
+        # if background_tasks:
+        #     background_tasks.add_task(self._save_session_to_mariadb, request.global_session_key)
 
         return SessionPatchResponse(status="success", updated_at=now)
 
     def close_session(self, request: SessionCloseRequest) -> SessionCloseResponse:
-        """세션 종료 (MA → SM)"""
+        """세션 종료 (MA → SM)
+
+        세션 종료 흐름:
+        1. 세션 상태를 END로 변경
+        2. Redis 업데이트
+        3. MariaDB 최종 상태 저장 (동기)
+        """
         session = self.session_repo.get(request.global_session_key)
         if not session:
             raise SessionNotFoundError(request.global_session_key)
@@ -261,7 +280,12 @@ class SessionService:
 
         self.session_repo.update(request.global_session_key, **updates)
 
-        archived_id = f"arch_{request.conversation_id}"
+        # TODO: MariaDB 최종 상태 저장 (동기)
+        # self._save_session_to_mariadb(request.global_session_key)
+
+        # conversation_id가 요청에 없으면 세션에 저장된 값을 사용
+        conversation_id = request.conversation_id or session.get("conversation_id", "")
+        archived_id = f"arch_{conversation_id}" if conversation_id else "arch_"
 
         return SessionCloseResponse(
             status="success",
@@ -269,56 +293,6 @@ class SessionService:
             archived_conversation_id=archived_id,
             cleaned_local_sessions=0,
         )
-
-    # ============ Portal API ============
-
-    def list_sessions(
-        self,
-        page: int = 1,
-        page_size: int = 20,
-        user_id: str | None = None,
-        session_state: SessionState | None = None,
-    ) -> SessionListResponse:
-        """세션 목록 조회 (Portal → SM, 읽기 전용)"""
-        repo = self.session_repo
-
-        if hasattr(repo, "list_all_sessions"):
-            all_sessions = repo.list_all_sessions()  # type: ignore[assignment]
-        elif hasattr(repo, "_sessions"):
-            all_sessions = list(repo._sessions.values())  # type: ignore[attr-defined,assignment]
-        else:
-            all_sessions = []
-
-        filtered = all_sessions
-        if user_id:
-            filtered = [s for s in filtered if s.get("user_id") == user_id]
-        if session_state:
-            filtered = [s for s in filtered if s.get("session_state") == session_state.value]
-
-        filtered.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-
-        total = len(filtered)
-        start = (page - 1) * page_size
-        end = start + page_size
-        paged = filtered[start:end]
-
-        items = []
-        for s in paged:
-            items.append(
-                SessionListItem(
-                    global_session_key=s.get("global_session_key", ""),
-                    user_id=s.get("user_id", ""),
-                    channel=s.get("channel", ""),
-                    session_state=SessionState(s.get("session_state", "start")),
-                    context_id=s.get("context_id", ""),
-                    conversation_id=s.get("conversation_id", ""),
-                    created_at=datetime.fromisoformat(s.get("created_at", datetime.now(UTC).isoformat())),
-                    updated_at=datetime.fromisoformat(s.get("updated_at", datetime.now(UTC).isoformat())),
-                    expires_at=datetime.fromisoformat(s["expires_at"]) if s.get("expires_at") else None,
-                )
-            )
-
-        return SessionListResponse(total=total, page=page, page_size=page_size, items=items)
 
 
 def get_session_service() -> SessionService:

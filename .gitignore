@@ -11,7 +11,8 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
-master_agent_workflow/
-./pytest_cache/
-redis
-agw_workflwow/
+.env
+*.bak
+*.swp
+*.swo
+*~

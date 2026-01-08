@@ -2,50 +2,86 @@
 Session Manager - Schemas Package (v3.0)
 """
 
-from app.schemas.agw import (
-    SessionCreateRequest,
-    SessionCreateResponse,
-)
-from app.schemas.batch import (
-    BatchProfileError,
-    BatchProfileRecord,
-    BatchProfileRequest,
-    BatchProfileResponse,
+from app.schemas.agent_sessions import (
+    AgentSessionGetResponse,
+    AgentSessionRegisterRequest,
+    AgentSessionRegisterResponse,
 )
 from app.schemas.common import (
     AgentType,
     ConversationHistory,
+    ConversationHistoryResponse,
     ConversationTurn,
+    ConversationTurnSaveRequest,
+    ConversationTurnSaveResponse,
     CustomerProfile,
     ErrorResponse,
     FallbackReason,
-    ProfileAttribute,
-    ResponseType,
-    SessionState,
-    SubAgentStatus,
-    TaskQueueStatus,
-)
-from app.schemas.ma import (
-    ConversationHistoryResponse,
-    ConversationTurnSaveRequest,
-    ConversationTurnSaveResponse,
     LastEvent,
-    LocalSessionGetResponse,
-    LocalSessionRegisterRequest,
-    LocalSessionRegisterResponse,
+    ProfileAttribute,
     ProfileGetResponse,
+    ResponseType,
     SessionCloseRequest,
     SessionCloseResponse,
+    SessionCreateRequest,
+    SessionCreateResponse,
     SessionPatchRequest,
     SessionPatchResponse,
     SessionResolveRequest,
     SessionResolveResponse,
+    SessionState,
     StatePatch,
+    SubAgentStatus,
+    TaskQueueStatus,
 )
-from app.schemas.portal import (
-    ContextDeleteRequest,
-    ContextDeleteResponse,
-    ContextInfoResponse,
-    SessionListItem,
-    SessionListResponse,
+from app.schemas.contexts import (
+    ContextCreate,
+    ContextResponse,
+    ContextUpdate,
+    TurnCreate,
+    TurnCreateWithAPI,
+    TurnListResponse,
+    TurnResponse,
 )
+
+__all__ = [
+    # Agent Sessions
+    "AgentSessionGetResponse",
+    "AgentSessionRegisterRequest",
+    "AgentSessionRegisterResponse",
+    # Common - Enums
+    "AgentType",
+    "FallbackReason",
+    "ResponseType",
+    "SessionState",
+    "SubAgentStatus",
+    "TaskQueueStatus",
+    # Common - Models
+    "ConversationHistory",
+    "ConversationHistoryResponse",
+    "ConversationTurn",
+    "ConversationTurnSaveRequest",
+    "ConversationTurnSaveResponse",
+    "CustomerProfile",
+    "ErrorResponse",
+    "LastEvent",
+    "ProfileAttribute",
+    "ProfileGetResponse",
+    "SessionCloseRequest",
+    "SessionCloseResponse",
+    "SessionCreateRequest",
+    "SessionCreateResponse",
+    "SessionPatchRequest",
+    "SessionPatchResponse",
+    "SessionResolveRequest",
+    "SessionResolveResponse",
+    "StatePatch",
+    # Contexts (Sprint 3)
+    "ContextCreate",
+    "ContextResponse",
+    "ContextUpdate",
+    "TurnCreate",
+    "TurnCreateWithAPI",
+    "TurnListResponse",
+    "TurnResponse",
+]

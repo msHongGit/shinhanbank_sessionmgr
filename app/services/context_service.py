@@ -1,133 +1,117 @@
 """
-Session Manager - Context Service (v4.0 - Sync)
-대화 이력 관리 (Sync 방식)
+Session Manager - Sprint 3 Context Service
+Sprint 3: Context & Turn 관리 서비스 (BackgroundTasks 패턴)
 """
 
-from datetime import UTC, datetime
+from fastapi import BackgroundTasks
+from sqlalchemy.orm import Session
 
-from app.core.exceptions import ContextNotFoundError, SessionNotFoundError
-from app.repositories import (
-    ContextRepositoryInterface,
-    MockContextRepository,
-    MockSessionRepository,
-    RedisContextRepository,
-    RedisSessionRepository,
-    SessionRepositoryInterface,
+from app.repositories.hybrid_context_repository import HybridContextRepository
+from app.schemas.contexts import (
+    ContextCreate,
+    ContextResponse,
+    ContextUpdate,
+    TurnCreate,
+    TurnCreateWithAPI,
+    TurnListResponse,
+    TurnResponse,
 )
-from app.schemas.common import ConversationTurn
-from app.schemas.ma import (
-    ConversationHistoryResponse,
-    ConversationTurnSaveRequest,
-    ConversationTurnSaveResponse,
-)
-from app.schemas.portal import ContextDeleteRequest, ContextDeleteResponse, ContextInfoResponse
 
 
-class ContextService:
-    """Context (대화 이력) 관리 서비스 (Sync)"""
+class Sprint3ContextService:
+    """Sprint 3 Context & Turn 서비스 (BackgroundTasks 패턴)"""
 
-    def __init__(
-        self,
-        context_repo: ContextRepositoryInterface | None = None,
-        session_repo: SessionRepositoryInterface | None = None,
-    ):
-        if context_repo is not None and session_repo is not None:
-            self.context_repo = context_repo
-            self.session_repo = session_repo
-            return
+    def __init__(self, db: Session):
+        self.repo = HybridContextRepository(db)
 
-        # Sprint 2: 대화 컨텍스트는 항상 Redis를 사용
-        self.context_repo = RedisContextRepository()
-        self.session_repo = RedisSessionRepository()
+    # ========================================================================
+    # Context 관리
+    # ========================================================================
 
-    # ============ MA API ============
+    def create_context(self, request: ContextCreate, background_tasks: BackgroundTasks) -> ContextResponse:
+        """컨텍스트 생성 (Redis 즉시 + MariaDB 백그라운드)"""
+        return self.repo.create_context(request, background_tasks)
 
-    def get_conversation_history(
-        self,
-        global_session_key: str,
-        context_id: str | None = None,
-    ) -> ConversationHistoryResponse:
-        """대화 이력 조회 (MA → SM)"""
-        session = self.session_repo.get(global_session_key)
-        if not session:
-            raise SessionNotFoundError(global_session_key)
-
-        ctx_id = context_id or session.get("context_id")
-        if not ctx_id:
-            raise ContextNotFoundError(context_id or "unknown")
-
-        context = self.context_repo.get(ctx_id)
+    def get_context(self, context_id: str) -> ContextResponse:
+        """컨텍스트 조회 (Redis 우선, Miss 시 MariaDB)"""
+        context = self.repo.get_context(context_id)
         if not context:
-            raise ContextNotFoundError(ctx_id)
+            raise ValueError(f"Context not found: {context_id}")
+        return context
 
-        turns_data = self.context_repo.get_turns(ctx_id)
-        turns = [ConversationTurn(**t) for t in turns_data]
-
-        return ConversationHistoryResponse(
-            context_id=ctx_id,
-            global_session_key=global_session_key,
-            conversation_id=session.get("conversation_id", ""),
-            turns=turns,
-            total_turns=len(turns),
-        )
-
-    def save_conversation_turn(self, request: ConversationTurnSaveRequest) -> ConversationTurnSaveResponse:
-        """대화 턴 저장 (MA → SM)"""
-        session = self.session_repo.get(request.global_session_key)
-        if not session:
-            raise SessionNotFoundError(request.global_session_key)
-
-        context = self.context_repo.get(request.context_id)
+    def update_context(self, context_id: str, request: ContextUpdate, background_tasks: BackgroundTasks) -> ContextResponse:
+        """컨텍스트 업데이트 (Redis 즉시 + MariaDB 백그라운드)"""
+        context = self.repo.update_context(context_id, request, background_tasks)
         if not context:
-            raise ContextNotFoundError(request.context_id)
+            raise ValueError(f"Context not found: {context_id}")
+        return context
 
-        turn_data = request.turn.model_dump()
-        if isinstance(turn_data.get("timestamp"), datetime):
-            turn_data["timestamp"] = turn_data["timestamp"].isoformat()
+    # ========================================================================
+    # Turn 관리
+    # ========================================================================
 
-        self.context_repo.add_turn(request.context_id, turn_data)
+    def create_turn(self, request: TurnCreate | TurnCreateWithAPI, background_tasks: BackgroundTasks) -> TurnResponse:
+        """
+        턴 생성 (메타데이터만, Redis 즉시 + MariaDB 백그라운드)
 
-        return ConversationTurnSaveResponse(
-            status="success",
-            turn_id=request.turn.turn_id,
-            saved_at=datetime.now(UTC),
-        )
+        - TurnCreate: 일반 대화 턴 메타데이터
+        - TurnCreateWithAPI: API 호출 결과 포함
+        """
+        return self.repo.create_turn(request, background_tasks)
 
-    # ============ Portal API ============
+    def get_turn(self, turn_id: str) -> TurnResponse:
+        """턴 조회 (Redis 우선, Miss 시 MariaDB)"""
+        turn = self.repo.get_turn(turn_id)
+        if not turn:
+            raise ValueError(f"Turn not found: {turn_id}")
+        return turn
 
-    def delete_context(self, request: ContextDeleteRequest) -> ContextDeleteResponse:
-        """Context 삭제 (Portal → SM)"""
-        context = self.context_repo.get(request.context_id)
-        if not context:
-            raise ContextNotFoundError(request.context_id)
-
-        deleted_turns = self.context_repo.delete(request.context_id)
-
-        return ContextDeleteResponse(
-            status="success",
-            context_id=request.context_id,
-            deleted_turns=deleted_turns,
-            deleted_at=datetime.now(UTC),
-        )
-
-    def get_context_info(self, context_id: str) -> ContextInfoResponse:
-        """Context 정보 조회 (Portal → SM)"""
-        context = self.context_repo.get(context_id)
-        if not context:
-            raise ContextNotFoundError(context_id)
-
-        turns = self.context_repo.get_turns(context_id)
-
-        return ContextInfoResponse(
+    def list_turns(self, context_id: str, limit: int = 100) -> TurnListResponse:
+        """턴 목록 조회 (MariaDB에서 직접)"""
+        turns = self.repo.list_turns(context_id, limit)
+        return TurnListResponse(
             context_id=context_id,
-            global_session_key=context.get("global_session_key", ""),
-            user_id=context.get("user_id", ""),
-            turn_count=len(turns),
-            created_at=datetime.fromisoformat(context.get("created_at", datetime.now(UTC).isoformat())),
-            updated_at=datetime.fromisoformat(context.get("last_updated_at", context.get("created_at", datetime.now(UTC).isoformat()))),
+            turns=turns,
+            total_count=len(turns),
         )
 
+    # ========================================================================
+    # 유틸리티
+    # ========================================================================
 
-def get_context_service() -> ContextService:
-    """ContextService 인스턴스 반환 (DI)"""
-    return ContextService()
+    def record_api_call(
+        self,
+        turn_id: str,
+        global_session_key: str,
+        turn_number: int,
+        api_name: str,
+        params: dict,
+        result: dict,
+        status: str = "success",
+        duration_ms: int = 0,
+        background_tasks: BackgroundTasks | None = None,
+    ) -> TurnResponse:
+        """
+        API 호출 결과 기록 (Redis 즉시 + MariaDB 백그라운드)
+
+        턴 메타데이터에 API 호출 결과를 저장합니다.
+        """
+        if not background_tasks:
+            background_tasks = BackgroundTasks()
+
+        request = TurnCreateWithAPI(
+            turn_id=turn_id,
+            global_session_key=global_session_key,
+            turn_number=turn_number,
+            role="system",
+            metadata={
+                "api_call": {
+                    "api_name": api_name,
+                    "params": params,
+                    "result": result,
+                    "status": status,
+                    "duration_ms": duration_ms,
+                }
+            },
+        )
+        return self.create_turn(request, background_tasks)

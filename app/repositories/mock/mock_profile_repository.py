@@ -1,12 +1,16 @@
-"""
-Session Manager - Mock Profile Repository (v4.0 - Sync)
-In-Memory Dict 기반 Profile 저장소 (Singleton)
+"""Session Manager - Mock Profile Repository (v4.0 - Sync).
+
+In-Memory Dict 기반 Profile 저장소 (Singleton).
+
+ma_session은 참고용 도메인 모델이므로,
+여기서는 app.schemas.common의 CustomerProfile을 사용한다.
 """
 
 from datetime import UTC, datetime
 from typing import Any
 
 from app.repositories.base import ProfileRepositoryInterface
+from app.schemas.common import CustomerProfile, ProfileAttribute
 
 
 class MockProfileRepository(ProfileRepositoryInterface):
@@ -49,8 +53,44 @@ class MockProfileRepository(ProfileRepositoryInterface):
         }
 
     def get(self, user_id: str) -> list[dict[str, Any]]:
-        """프로파일 조회 (속성 리스트 반환)"""
+        """프로파일 조회 (원시 속성 리스트 반환).
+
+        ProfileService 등에서 직접 속성 dict를 가공할 때 사용한다.
+        """
         return self._profiles.get(user_id, [])
+
+    def get_profile(self, user_id: str, context_id: str | None = None, **kwargs) -> CustomerProfile | None:
+        """프로파일 조회 (schemas.common.CustomerProfile 객체 반환).
+
+        SessionService 등에서 고객 프로파일 스냅샷이 필요할 때 사용한다.
+        """
+        attributes_data = self._profiles.get(user_id, [])
+        if not attributes_data:
+            return None
+
+        # 속성 리스트를 ProfileAttribute로 변환
+        attributes: list[ProfileAttribute] = []
+        segment: str | None = None
+
+        for attr in attributes_data:
+            pa = ProfileAttribute(
+                key=attr["attribute_key"],
+                value=attr["attribute_value"],
+                source_system=attr.get("source_system", "MOCK"),
+                valid_from=attr.get("valid_from"),
+                valid_to=attr.get("valid_to"),
+            )
+            attributes.append(pa)
+
+            if pa.key == "segment":
+                segment = pa.value
+
+        return CustomerProfile(
+            user_id=user_id,
+            attributes=attributes,
+            segment=segment,
+            preferences={"source": "mock"},
+        )
 
     def batch_upsert(self, profiles: list[dict[str, Any]]) -> int:
         """프로파일 배치 업데이트"""

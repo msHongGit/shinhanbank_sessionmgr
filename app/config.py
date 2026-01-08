@@ -40,7 +40,9 @@ SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production"
 ALLOWED_ORIGINS: list[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 # === Redis Configuration ===
-REDIS_URL: str = os.getenv("REDIS_URL", "rediss://default:40eMR6v24M6rghbwNjZeAZJxZIABPERQHAzCaFCHkJY=@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0")
+REDIS_URL: str = os.getenv(
+    "REDIS_URL", "rediss://default:40eMR6v24M6rghbwNjZeAZJxZIABPERQHAzCaFCHkJY=@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0"
+)
 REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", "10"))
 
 # === TTL Settings ===
@@ -68,6 +70,8 @@ AGW_API_KEY: str = os.getenv("AGW_API_KEY", "agw-api-key")
 MA_API_KEY: str = os.getenv("MA_API_KEY", "ma-api-key")
 PORTAL_API_KEY: str = os.getenv("PORTAL_API_KEY", "portal-api-key")
 VDB_API_KEY: str = os.getenv("VDB_API_KEY", "vdb-api-key")
+CLIENT_API_KEY: str = os.getenv("CLIENT_API_KEY", "client-api-key")
+EXTERNAL_API_KEY: str = os.getenv("EXTERNAL_API_KEY", "external-api-key")  # Sprint 3
 
 # === Auth (Sprint 2: 기본 비활성화, 운영에서만 활성화 권장) ===
 ENABLE_API_KEY_AUTH: bool = os.getenv("ENABLE_API_KEY_AUTH", "false").lower() == "true"
