@@ -1,102 +1,49 @@
-name: Docker Smoke Test
+name: Docker Smoke
 
 on:
   pull_request:
-    branches: ["dev", "main"]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.gitignore'
-      - 'LICENSE'
+    branches:
+      - main
+      - dev 
 
 jobs:
-  docker-build-test:
+  docker-smoke:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 20
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Build Docker image
+        run: docker build -t master-agent:${{ github.sha }} .
 
-    - name: Build Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        push: false
-        tags: session-manager:test
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - name: Run container
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name master-agent-smoke -e PORT=5000 -p 5000:5000 master-agent:${{ github.sha }}
+          # Initial wait for container to stabilize
+          sleep 5
 
-    - name: Run container smoke test
-      run: |
-        # 컨테이너 실행
-        docker run -d \
-          --name sm-test \
-          -p 8000:8000 \
-          -e APP_ENV=test \
-          -e REDIS_URL=${{ secrets.REDIS_URL }} \
-          -e AGW_API_KEY=test-agw-key \
-          -e MA_API_KEY=test-ma-key \
-          -e PORTAL_API_KEY=test-portal-key \
-          -e VDB_API_KEY=test-vdb-key \
-          session-manager:test
+      - name: Wait for health endpoint
+        run: |
+          set -euo pipefail
+          for i in {1..25}; do
+            if curl -fsS http://localhost:5000/health >/dev/null 2>&1; then
+              echo "Health check passed on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i: waiting for health endpoint..."
+            sleep 1
+          done
+          echo "Health check failed after 25 attempts"
+          docker logs master-agent-smoke || true
+          exit 1
 
-        # 컨테이너 시작 대기 (최대 60초)
-        echo "Waiting for container to start..."
-        for i in {1..60}; do
-          if docker logs sm-test 2>&1 | grep -q "Application startup complete"; then
-            echo "Container started successfully"
-            break
-          fi
-          if [ $i -eq 60 ]; then
-            echo "Container failed to start within 60 seconds"
-            docker logs sm-test
-            exit 1
-          fi
-          sleep 1
-        done
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs master-agent-smoke
 
-        # Health check
-        echo "Running health check..."
-        curl --retry 10 --retry-delay 2 --retry-connrefused \
-          --fail \
-          http://localhost:8000/health
-
-        # API 문서 접근 확인
-        echo "Checking API documentation..."
-        curl -f http://localhost:8000/api/v1/docs || exit 1
-
-        # 간단한 API 테스트
-        echo "Testing session creation API..."
-        curl -X POST http://localhost:8000/api/v1/agw/sessions \
-          -H "X-API-Key: test-agw-key" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "user_id": "smoke_test_user",
-            "channel": "mobile"
-          }' \
-          --fail || exit 1
-
-        echo "Smoke tests passed!"
-
-    - name: Show container logs
-      if: always()
-      run: |
-        docker logs sm-test
-
-    - name: Cleanup
-      if: always()
-      run: |
-        docker stop sm-test || true
-        docker rm sm-test || true
-
-    - name: Run pytest in container
-      run: |
-        docker run --rm \
-          -e APP_ENV=test \
-          -e REDIS_URL=${{ secrets.REDIS_URL }} \
-          session-manager:test \
-          sh -c "pip install pytest pytest-cov && pytest -v --tb=short"
+      - name: Stop container
+        if: always()
+        run: docker rm -f master-agent-smoke

@@ -14,9 +14,9 @@ from fastapi.testclient import TestClient
 # - CI: GitHub Actions workflow에서 설정
 from app.config import AGW_API_KEY, MA_API_KEY, PORTAL_API_KEY, VDB_API_KEY
 
-# v4.0: Mock Repository 사용으로 DB patching 불필요
+# v4.0: 테스트에서는 실제 Redis를 사용하고, Profile만 Mock으로 주입
 from app.main import app
-from app.repositories.mock import MockContextRepository, MockProfileRepository, MockSessionRepository
+from app.repositories.mock import MockProfileRepository
 from app.schemas import (
     ConversationTurn,
     CustomerProfile,
@@ -27,30 +27,20 @@ from app.services.session_service import SessionService
 
 @pytest.fixture
 def client():
-    """FastAPI TestClient with Mock Repository Dependency Overrides"""
+    """FastAPI TestClient using real Redis for sessions/contexts and Mock profile data."""
+
     from app.api.v1.agent_sessions import get_session_service as get_agent_session_service
-    from app.api.v1.contexts import get_context_repo
     from app.api.v1.sessions import get_session_service
 
-    # Mock Repository 싱글톤 인스턴스
-    session_repo = MockSessionRepository()
-    context_repo = MockContextRepository()
     profile_repo = MockProfileRepository()
 
-    # Dependency Override
+    # SessionService는 기본적으로 RedisSessionRepository/RedisContextRepository 를 사용하고,
+    # 여기서 Profile Repository만 Mock 으로 주입한다.
     def override_session_service():
-        return SessionService(
-            session_repo=session_repo,
-            context_repo=context_repo,
-            profile_repo=profile_repo,
-        )
-
-    def override_context_repo():
-        return context_repo
+        return SessionService(profile_repo=profile_repo)
 
     app.dependency_overrides[get_session_service] = override_session_service
     app.dependency_overrides[get_agent_session_service] = override_session_service
-    app.dependency_overrides[get_context_repo] = override_context_repo
 
     client = TestClient(app)
     yield client
@@ -61,18 +51,13 @@ def client():
 
 @pytest.fixture(autouse=True)
 def reset_mock_repositories():
-    """테스트 간 Mock Repository 상태 초기화"""
-    # 싱글톤 인스턴스의 데이터 초기화
-    session_repo = MockSessionRepository()
-    context_repo = MockContextRepository()
-    MockProfileRepository()  # Initialize singleton
+    """테스트 간 Mock Profile Repository 상태 보장.
 
-    session_repo._sessions.clear()
-    session_repo._local_mappings.clear()
-    context_repo._contexts.clear()
-    context_repo._turns.clear()
-    # profile은 mock 데이터 유지 (user_vip_001 등)
+    현재 구현에서는 MockProfileRepository 가 내부적으로 demo/user_vip 사용자에 대한
+    고정 데이터를 가지고 있으므로, 여기서는 인스턴스 초기화만 보장한다.
+    """
 
+    MockProfileRepository()  # singleton 초기화 (mock 데이터 로드)
     yield
 
 
@@ -169,7 +154,6 @@ def sample_ma_session_patch_request(sample_global_session_key):
     """MA 세션 상태 업데이트 요청"""
     return {
         "global_session_key": sample_global_session_key,
-        "conversation_id": "conv_001",
         "turn_id": "turn_001",
         "session_state": "talk",
         "state_patch": {
@@ -186,7 +170,6 @@ def sample_ma_session_close_request(sample_global_session_key):
     """MA 세션 종료 요청"""
     return {
         "global_session_key": sample_global_session_key,
-        "conversation_id": "conv_001",
         "close_reason": "user_exit",
         "final_summary": "이체 완료",
     }

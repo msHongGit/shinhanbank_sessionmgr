@@ -19,7 +19,8 @@ class TestSessionLifecycle:
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
         session = create_resp.json()
-        assert session["is_new"] is True
+        # 세션 생성 응답은 Global 세션 키만 포함
+        assert set(session.keys()) == {"global_session_key"}
         global_session_key = session["global_session_key"]
 
         # 2. 세션 조회 (MA)
@@ -35,7 +36,6 @@ class TestSessionLifecycle:
         # 3. 세션 상태 업데이트 (MA)
         patch_req = {
             "global_session_key": global_session_key,
-            "conversation_id": "conv_int_001",
             "turn_id": "turn_001",
             "session_state": "talk",
             "state_patch": {
@@ -50,7 +50,6 @@ class TestSessionLifecycle:
         close_resp = client.delete(
             f"/api/v1/sessions/{global_session_key}",
             params={
-                "conversation_id": "conv_int_001",
                 "close_reason": "test_completed",
             },
             headers=ma_headers,

@@ -39,13 +39,10 @@
 - **Contexts API 정리**
   - Sprint 2: `/api/v1/ma/context/turn`, `/api/v1/ma/context/history` 등 MA 전용
   - Sprint 3:
-    - 공통 Contexts API로 정리:
-      - `POST /api/v1/contexts`
-      - `GET /api/v1/contexts/{context_id}`
-      - `PATCH /api/v1/contexts/{context_id}`
-      - `POST /api/v1/contexts/{context_id}/turns`
-      - `GET /api/v1/contexts/{context_id}/turns`
-      - `GET /api/v1/contexts/{context_id}/turns/{turn_id}`
+    - **Context CRUD/조회 API 제거**
+    - 세션/컨텍스트는 여전히 Redis에 저장되지만, 외부에서 직접 Context를 생성/조회하는 API는 제공하지 않음
+    - 대신 **SOL 실시간 API 연동 결과 저장 전용 단일 API**만 제공:
+      - `POST /api/v1/contexts/turn-results` – `session_id`/`turn_id` 기반으로 SOL `/api/v1/sol/transaction` + `/api/v1/sol/transaction/result` 요청/응답 전체를 턴 메타데이터로 저장
 
 - **세션 종료 동작**
   - Sprint 2 문서: "모든 Local 세션 매핑 삭제, Task Queue 정리" 라고 설명

@@ -4,7 +4,7 @@
 
 > **Sprint 1**: 설계 및 아키텍처 정의  
 > **Sprint 2**: Mock Repository 기반 API 검증  
-> **Sprint 3**: Unified Sessions + Contexts/Turns, Redis 기반 세션/컨텍스트 관리 (현재)
+> **Sprint 3**: Unified Sessions + SOL 연동 결과 메타데이터(Contexts/Turns), Redis 기반 세션/컨텍스트 관리 (현재 / MariaDB 미사용)
 
 ## 🎯 Sprint 3 목표
 
@@ -22,7 +22,7 @@
 ├─────────────────────────────────────────────────────────────┤
 │  API Layer (FastAPI)                                        │
 │    ├─ Unified Sessions API : 세션 생성/조회/상태변경/종료     │
-│    └─ Contexts API        : 컨텍스트/턴 메타데이터 관리      │
+│    └─ Contexts API        : SOL 실시간 API 연동 결과 메타데이터 저장 │
 ├─────────────────────────────────────────────────────────────┤
 │  Service Layer                                               │
 │    ├─ SessionService  : 세션/Agent 세션 매핑 비즈니스 로직   │
@@ -30,10 +30,9 @@
 │    └─ ProfileService  : 고객 프로파일 조회/연결              │
 ├─────────────────────────────────────────────────────────────┤
 │  Repository Layer                                            │
-│    ├─ RedisSessionRepository   : Redis 기반 세션 저장소       │
+│    ├─ RedisSessionRepository   : Redis 기반 세션/매핑 저장소  │
 │    ├─ RedisContextRepository   : Redis 기반 컨텍스트/턴 저장소│
-│    ├─ RedisSessionMapRepository: Global ↔ Agent 세션 매핑     │
-│    └─ Mock*Repository         : 테스트/개발용 Mock 구현체    │
+│    └─ Mock*Repository          : 테스트/개발용 Mock 구현체    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,7 +43,7 @@ app/
    api/
       v1/
          sessions.py      # Unified Sessions API
-         contexts.py      # Contexts/Turns API
+         contexts.py      # SOL 실시간 API 결과 저장(turn-results)
          router.py        # v1 라우터 집합
    services/            # 비즈니스 로직
       session_service.py
@@ -55,7 +54,7 @@ app/
       hybrid_*_repository.py
       mock/              # 테스트/개발용 Mock Repository
    schemas/             # Pydantic 스키마 (sessions, contexts 등)
-   models/              # SQLAlchemy 모델 (향후 RDB용)
+   models/              # SQLAlchemy 모델 (향후 RDB/Context DB용, 현재 미사용)
    core/                # 예외, 인증, 정책
    db/                  # DB/Redis 연결
    main.py              # FastAPI 엔트리포인트
@@ -76,7 +75,7 @@ docs/
 # uv 환경 구성
 uv sync --all-extras
 
-# 서버 실행 (기본 포트 5000)
+# 서버 실행 (기본 포트 5000, Redis 연결 필요)
 uv run uvicorn app.main:app --reload --port 5000
 ```
 
@@ -95,7 +94,7 @@ uv run pytest tests/ -v
 > 주요 테스트는 `tests/test_sessions_api.py`, `tests/test_context_api.py`, `tests/test_agent_sessions_api.py`, `tests/test_integration.py` 로 구성되어 있습니다.
 
 
-## 🔑 인증 정책 (Sprint 3 기준)
+## 🔑 인증/저장소 정책 (Sprint 3 기준)
 
 - 설계 상은 호출자별 API Key 헤더를 사용합니다.
    - 헤더: `X-API-Key: {CALLER_API_KEY}`
@@ -103,6 +102,14 @@ uv run pytest tests/ -v
 - 현재 Sprint 3 개발/테스트 환경에서는 `ENABLE_API_KEY_AUTH=false` 설정으로
    - Sessions/Contexts API는 인증 없이 호출 가능
    - 운영 전환 시 `ENABLE_API_KEY_AUTH=true` + `require_api_key` 의존성 복구를 전제로 합니다.
+
+### 저장소/TTL
+
+- 세션/컨텍스트/턴은 Redis 하나만 사용 (MariaDB Context DB는 아직 연동하지 않음)
+- 주요 TTL (기본값, `.env` 로 오버라이드 가능)
+   - `SESSION_CACHE_TTL=600` 초: 세션 스냅샷(`session:{global_session_key}`) 만료 시간
+   - `SESSION_MAP_TTL=600` 초: Global↔Agent 세션 매핑(`session_map:{global_session_key}:{agent_id}`) 만료 시간
+   - 세션 종료 API 호출 없이 아무 동작이 없으면 TTL 기준으로 Redis에서 자동 삭제됨
 
 ✅ **Repository Pattern**
 - 공통 인터페이스 정의 (`repositories/base.py`)
@@ -117,8 +124,10 @@ uv run pytest tests/ -v
 
 ✅ **API Layer**
 - Unified Sessions API (`/api/v1/sessions`)
-- Contexts/Turns API (`/api/v1/contexts` 이하)
-- Swagger UI (`/api/v1/docs`) 기반 자동 문서화
+   - 세션 생성/조회/상태 업데이트/종료, Ping(생존 확인 및 TTL 연장)
+- SOL 실시간 API 결과 저장 API (`/api/v1/contexts/turn-results`)
+   - SOL RequestParam + DBSTrxResponse 전체를 턴 메타데이터로 저장 (텍스트 미저장)
+- Swagger UI (`/api/v1/docs`) 기반 자동 문서화 (필수/주요 필드 설명 포함)
 
 ✅ **테스트**
 - pytest 기반 단위/통합 테스트

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ============ Enums ============
 
@@ -137,29 +137,27 @@ class ErrorResponse(BaseModel):
 
 
 class SessionCreateRequest(BaseModel):
-    """
-    초기 세션 생성 요청 (AGW → SM)
-    Session Manager가 Global Session Key를 생성하여 반환
+    """초기 세션 생성 요청 (AGW → SM)
+
+    Session Manager가 Global Session Key를 생성하여 반환하며,
+    요청 바디는 userId, startType 두 필드만 사용한다.
     """
 
-    user_id: str = Field(..., description="사용자 ID")
-    channel: str = Field(..., description="채널 (mobile, web, kiosk)")
-    request_id: str | None = Field(None, description="요청 추적 ID (옵션)")
-    device_info: dict[str, Any] | None = Field(None, description="디바이스 정보 (옵션)")
+    user_id: str = Field(..., alias="userId", description="사용자 ID")
+    start_type: str = Field(
+        ...,
+        alias="startType",
+        description="세션 진입 유형 (예: ICON_ENTRY, SOL_PAGE_ENTRY 등)",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SessionCreateResponse(BaseModel):
     """초기 세션 생성 응답"""
 
+    # 외부 응답은 Global 세션 키만 노출 (나머지 메타데이터는 내부/조회용)
     global_session_key: str = Field(..., description="Global 세션 키")
-    context_id: str = Field(..., description="Context ID (대화 이력 식별)")
-    session_state: SessionState = Field(..., description="세션 상태")
-    expires_at: datetime = Field(..., description="만료 시각")
-    is_new: bool = Field(..., description="신규 생성 여부")
-    customer_profile: CustomerProfile | None = Field(
-        None,
-        description="세션에 저장된 고객 프로파일 (옵션)",
-    )
 
 
 # ============ Session Resolve (from ma.py) ============
@@ -189,8 +187,6 @@ class SessionResolveResponse(BaseModel):
 
     global_session_key: str = Field(..., description="Global 세션 키")
     agent_session_key: str | None = Field(None, description="업무 Agent 세션 키")
-    conversation_id: str = Field(..., description="대화 ID")
-    context_id: str = Field(..., description="Context ID")
     session_state: SessionState = Field(..., description="세션 상태")
     is_first_call: bool = Field(..., description="최초 호출 여부")
     task_queue_status: TaskQueueStatus = Field(..., description="Task Queue 상태")
@@ -216,16 +212,19 @@ class StatePatch(BaseModel):
     last_agent_type: AgentType | None = None
     last_response_type: ResponseType | None = None
     agent_session_key: str | None = None
+    session_attributes: dict[str, Any] | None = Field(
+        None,
+        description="MA에서 추가로 세션에 저장하고 싶은 임의의 속성 맵",
+    )
 
 
 class SessionPatchRequest(BaseModel):
     """세션 상태 업데이트 요청 (MA → SM)"""
 
     global_session_key: str = Field(..., description="Global 세션 키")
-    conversation_id: str = Field(..., description="대화 ID")
-    turn_id: str = Field(..., description="턴 ID")
-    session_state: SessionState = Field(..., description="세션 상태")
-    state_patch: StatePatch = Field(..., description="상태 패치 데이터")
+    turn_id: str | None = Field(None, description="턴 ID (옵션; 이벤트 추적용)")
+    session_state: SessionState | None = Field(None, description="세션 상태 (옵션; 변경 시에만 전송)")
+    state_patch: StatePatch | None = Field(None, description="상태 패치 데이터 (옵션)")
 
 
 class SessionPatchResponse(BaseModel):
@@ -235,6 +234,14 @@ class SessionPatchResponse(BaseModel):
     updated_at: datetime = Field(..., description="업데이트 시각")
 
 
+class SessionPingResponse(BaseModel):
+    """세션 생존 여부 및 TTL 연장 응답"""
+
+    global_session_key: str = Field(..., description="Global 세션 키")
+    is_alive: bool = Field(..., description="세션이 살아있는지 여부")
+    expires_at: datetime | None = Field(None, description="연장 후 만료 시각 (세션이 없으면 null)")
+
+
 # ============ Session Close (from ma.py) ============
 
 
@@ -242,7 +249,6 @@ class SessionCloseRequest(BaseModel):
     """세션 종료 요청 (MA → SM)"""
 
     global_session_key: str = Field(..., description="Global 세션 키")
-    conversation_id: str | None = Field(None, description="대화 ID (옵션, 없으면 세션 저장값 사용)")
     close_reason: str | None = Field(None, description="종료 사유 (user_exit, timeout, transfer 등)")
     final_summary: str | None = Field(None, description="최종 요약")
 

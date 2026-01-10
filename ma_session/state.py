@@ -301,9 +301,7 @@ class AgentState(BaseModel):
     reference_taxonomy: list[dict[str, Any]] | None = Field(
         default=None,
         description=(
-            "Compact intent taxonomy for LLM prompting; "
-            "format: [{'agent': 'RAI', 'skill': '금융정보', "
-            "'sub_skill': '매크로'}, ...]"
+            "Compact intent taxonomy for LLM prompting; format: [{'agent': 'RAI', 'skill': '금융정보', 'sub_skill': '매크로'}, ...]"
         ),
     )
 

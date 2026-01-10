@@ -49,7 +49,44 @@ class MockProfileRepository(ProfileRepositoryInterface):
                     "created_at": datetime.now(UTC).isoformat(),
                     "updated_at": datetime.now(UTC).isoformat(),
                 },
-            ]
+            ],
+            # Sprint3 데모용 사용자들
+            "demo-user-001": [
+                {
+                    "user_id": "demo-user-001",
+                    "attribute_key": "segment",
+                    "attribute_value": "DEMO",
+                    "source_system": "MOCK",
+                    "valid_from": "2025-01-01",
+                    "valid_to": None,
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+            "demo-user-002": [
+                {
+                    "user_id": "demo-user-002",
+                    "attribute_key": "segment",
+                    "attribute_value": "DEMO",
+                    "source_system": "MOCK",
+                    "valid_from": "2025-01-01",
+                    "valid_to": None,
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+            "demo-user-003": [
+                {
+                    "user_id": "demo-user-003",
+                    "attribute_key": "segment",
+                    "attribute_value": "DEMO",
+                    "source_system": "MOCK",
+                    "valid_from": "2025-01-01",
+                    "valid_to": None,
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+            ],
         }
 
     def get(self, user_id: str) -> list[dict[str, Any]]:

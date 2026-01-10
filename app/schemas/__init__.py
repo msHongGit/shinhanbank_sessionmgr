@@ -34,15 +34,7 @@ from app.schemas.common import (
     SubAgentStatus,
     TaskQueueStatus,
 )
-from app.schemas.contexts import (
-    ContextCreate,
-    ContextResponse,
-    ContextUpdate,
-    TurnCreate,
-    TurnCreateWithAPI,
-    TurnListResponse,
-    TurnResponse,
-)
+from app.schemas.contexts import SolApiResultRequest, SolDBSTransactionPayload, SolDBSTransactionResult, TurnResponse
 
 __all__ = [
     # Agent Sessions
@@ -76,12 +68,9 @@ __all__ = [
     "SessionResolveRequest",
     "SessionResolveResponse",
     "StatePatch",
-    # Contexts (Sprint 3)
-    "ContextCreate",
-    "ContextResponse",
-    "ContextUpdate",
-    "TurnCreate",
-    "TurnCreateWithAPI",
-    "TurnListResponse",
+    # Contexts / SOL API (Sprint 3)
     "TurnResponse",
+    "SolDBSTransactionPayload",
+    "SolDBSTransactionResult",
+    "SolApiResultRequest",
 ]

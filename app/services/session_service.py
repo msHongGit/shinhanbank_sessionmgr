@@ -5,13 +5,13 @@
 
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 from fastapi import BackgroundTasks
 
 from app.config import (
     CONTEXT_ID_PREFIX,
-    CONVERSATION_ID_PREFIX,
     GLOBAL_SESSION_PREFIX,
     LOCAL_SESSION_PREFIX,
     SESSION_CACHE_TTL,
@@ -36,6 +36,7 @@ from app.schemas.common import (
     SessionCreateResponse,
     SessionPatchRequest,
     SessionPatchResponse,
+    SessionPingResponse,
     SessionResolveRequest,
     SessionResolveResponse,
     SessionState,
@@ -56,13 +57,13 @@ class SessionService:
         if session_repo is not None and context_repo is not None:
             self.session_repo = session_repo
             self.context_repo = context_repo
-            self.profile_repo = profile_repo
-            return
+        else:
+            # 기본값: 세션/컨텍스트/세션 매핑은 Redis 사용
+            self.session_repo = RedisSessionRepository()
+            self.context_repo = RedisContextRepository()
 
-        # Sprint 2: 세션/컨텍스트/세션 매핑은 항상 Redis를 사용
-        self.session_repo = RedisSessionRepository()
-        self.context_repo = RedisContextRepository()
-        self.profile_repo = None  # Production에서는 HybridProfileRepository 사용
+        # Profile Repository는 주입된 값을 그대로 사용 (없으면 None)
+        self.profile_repo = profile_repo
 
     def _generate_id(self, prefix: str) -> str:
         """ID 생성"""
@@ -103,14 +104,11 @@ class SessionService:
         4. Context 생성
         5. MariaDB 비동기 저장
         """
-        # Session Manager가 Global Session Key 생성
+        # Session Manager가 Global Session Key 및 Context ID 생성
         global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
-        conversation_id = self._generate_id(CONVERSATION_ID_PREFIX)
         context_id = self._generate_id(CONTEXT_ID_PREFIX)
-        expires_at = datetime.now(UTC) + timedelta(seconds=SESSION_CACHE_TTL)
 
         # 고객 프로파일 조회 (MariaDB context_db 또는 Mock Repository)
-        customer_profile_response = None
         profile_data = None
         if self.profile_repo:
             customer_profile = self.profile_repo.get_profile(
@@ -119,22 +117,21 @@ class SessionService:
                 background_tasks=background_tasks,
             )
             if customer_profile:
-                # Redis 스냅샷 저장용 raw dict
+                # Redis 스냅샷 저장용 raw dict (조회 응답에서 사용)
                 profile_data = customer_profile.model_dump()
-                # 응답에는 schemas.common.CustomerProfile 그대로 사용
-                customer_profile_response = customer_profile
 
         # Redis 즉시 저장 (세션 스냅샷)
         self.session_repo.create(
             global_session_key=global_session_key,
             user_id=request.user_id,
-            channel=request.channel,
-            conversation_id=conversation_id,
+            channel="utterance",
+            conversation_id="",  # Pass empty string instead of conversation_id
             context_id=context_id,
             session_state=SessionState.START.value,
             task_queue_status=TaskQueueStatus.NULL.value,
             subagent_status=SubAgentStatus.UNDEFINED.value,
             customer_profile=profile_data,
+            start_type=request.start_type,
         )
 
         # Context 생성
@@ -148,14 +145,8 @@ class SessionService:
         # if background_tasks:
         #     background_tasks.add_task(self._save_session_to_mariadb, global_session_key)
 
-        return SessionCreateResponse(
-            global_session_key=global_session_key,
-            context_id=context_id,
-            session_state=SessionState.START,
-            expires_at=expires_at,
-            is_new=True,
-            customer_profile=customer_profile_response,
-        )
+        # 외부 응답은 Global 세션 키만 반환 (상세 메타데이터는 조회 API에서 확인)
+        return SessionCreateResponse(global_session_key=global_session_key)
 
     # ============ MA API ============
 
@@ -190,8 +181,6 @@ class SessionService:
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
             agent_session_key=agent_session_key,
-            conversation_id=session.get("conversation_id", ""),
-            context_id=session.get("context_id", ""),
             session_state=SessionState(session.get("session_state", "start")),
             is_first_call=session.get("session_state") == "start",
             task_queue_status=task_queue_status,
@@ -213,40 +202,44 @@ class SessionService:
             raise SessionNotFoundError(request.global_session_key)
 
         now = datetime.now(UTC)
-        updates = {
-            "conversation_id": request.conversation_id,
-            "session_state": request.session_state.value,
-        }
+        updates: dict[str, Any] = {}
+
+        # 세션 상태는 전달된 경우에만 변경
+        if request.session_state is not None:
+            updates["session_state"] = request.session_state.value
 
         patch = request.state_patch
-        if patch.subagent_status:
-            updates["subagent_status"] = patch.subagent_status.value
-        if patch.action_owner:
-            updates["action_owner"] = patch.action_owner
-        if patch.reference_information:
-            updates["reference_information"] = json.dumps(patch.reference_information)
-        if patch.cushion_message:
-            updates["cushion_message"] = patch.cushion_message
+        if patch is not None:
+            if patch.subagent_status:
+                updates["subagent_status"] = patch.subagent_status.value
+            if patch.action_owner:
+                updates["action_owner"] = patch.action_owner
+            if patch.reference_information:
+                updates["reference_information"] = json.dumps(patch.reference_information)
+            if patch.cushion_message:
+                updates["cushion_message"] = patch.cushion_message
+            if patch.session_attributes:
+                updates["session_attributes"] = json.dumps(patch.session_attributes)
 
-        if patch.last_agent_id or patch.last_response_type:
-            last_event = {
-                "event_type": "AGENT_RESPONSE",
-                "agent_id": patch.last_agent_id,
-                "agent_type": patch.last_agent_type.value if patch.last_agent_type else None,
-                "response_type": patch.last_response_type.value if patch.last_response_type else None,
-                "updated_at": now.isoformat(),
-            }
-            updates["last_event"] = json.dumps(last_event)
+            if patch.last_agent_id or patch.last_response_type:
+                last_event = {
+                    "event_type": "AGENT_RESPONSE",
+                    "agent_id": patch.last_agent_id,
+                    "agent_type": patch.last_agent_type.value if patch.last_agent_type else None,
+                    "response_type": patch.last_response_type.value if patch.last_response_type else None,
+                    "updated_at": now.isoformat(),
+                }
+                updates["last_event"] = json.dumps(last_event)
 
-        # Agent 세션 매핑 등록 (세션 상태 업데이트 시 함께 처리)
-        if patch.agent_session_key and patch.last_agent_id:
-            agent_type_value = patch.last_agent_type.value if patch.last_agent_type else AgentType.TASK.value
-            self.session_repo.set_local_mapping(
-                global_session_key=request.global_session_key,
-                agent_id=patch.last_agent_id,
-                local_session_key=patch.agent_session_key,
-                agent_type=agent_type_value,
-            )
+            # Agent 세션 매핑 등록 (세션 상태 업데이트 시 함께 처리)
+            if patch.agent_session_key and patch.last_agent_id:
+                agent_type_value = patch.last_agent_type.value if patch.last_agent_type else AgentType.TASK.value
+                self.session_repo.set_local_mapping(
+                    global_session_key=request.global_session_key,
+                    agent_id=patch.last_agent_id,
+                    local_session_key=patch.agent_session_key,
+                    agent_type=agent_type_value,
+                )
 
         self.session_repo.update(request.global_session_key, **updates)
 
@@ -255,6 +248,42 @@ class SessionService:
         #     background_tasks.add_task(self._save_session_to_mariadb, request.global_session_key)
 
         return SessionPatchResponse(status="success", updated_at=now)
+
+    def ping_session(self, global_session_key: str) -> SessionPingResponse:
+        """세션 생존 여부 확인 및 TTL 연장.
+
+        세션이 존재하면 TTL을 연장하고, 연장 후 만료 시각을 반환한다.
+        세션이 없으면 is_alive=False 와 expires_at=None 을 반환한다.
+        """
+
+        # 세션 존재 여부 확인
+        session = self.session_repo.get(global_session_key)
+        if not session:
+            return SessionPingResponse(global_session_key=global_session_key, is_alive=False, expires_at=None)
+
+        # 저장소별 TTL 연장 처리 (Duck typing)
+        refreshed = None
+        if isinstance(self.session_repo, (RedisSessionRepository, MockSessionRepository)) and hasattr(
+            self.session_repo,
+            "refresh_ttl",
+        ):
+            refreshed = self.session_repo.refresh_ttl(global_session_key)
+
+        # refresh_ttl 호출 결과가 없으면 기존 세션 정보 사용
+        snapshot = refreshed or self.session_repo.get(global_session_key) or {}
+        expires_raw = snapshot.get("expires_at")
+        expires_at = None
+        if isinstance(expires_raw, str):
+            try:
+                expires_at = datetime.fromisoformat(expires_raw)
+            except ValueError:
+                expires_at = None
+
+        return SessionPingResponse(
+            global_session_key=global_session_key,
+            is_alive=True,
+            expires_at=expires_at,
+        )
 
     def close_session(self, request: SessionCloseRequest) -> SessionCloseResponse:
         """세션 종료 (MA → SM)
@@ -283,9 +312,8 @@ class SessionService:
         # TODO: MariaDB 최종 상태 저장 (동기)
         # self._save_session_to_mariadb(request.global_session_key)
 
-        # conversation_id가 요청에 없으면 세션에 저장된 값을 사용
-        conversation_id = request.conversation_id or session.get("conversation_id", "")
-        archived_id = f"arch_{conversation_id}" if conversation_id else "arch_"
+        # conversation_id 없이 세션 기준 아카이브 ID 생성
+        archived_id = f"arch_{request.global_session_key}"
 
         return SessionCloseResponse(
             status="success",

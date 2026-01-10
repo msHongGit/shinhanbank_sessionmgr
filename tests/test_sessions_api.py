@@ -25,51 +25,42 @@ class TestSessionCreate:
     def test_create_session_success_with_agw(self, client, agw_headers):
         """AGW가 세션 생성 - 프로파일 자동 조회 (MariaDB context_db에서)"""
         request_data = {
-            "user_id": "user_vip_001",  # MockProfileRepository에 존재하는 사용자
-            "channel": "web",
-            "request_id": "req_test_001",
+            "userId": "user_vip_001",  # MockProfileRepository에 존재하는 사용자
+            "startType": "ICON_ENTRY",
         }
         response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
 
         assert response.status_code == 201
         data = response.json()
         assert data["global_session_key"].startswith("gsess_")
-        assert data["session_state"] == "start"
-        assert data["is_new"] is True
-        assert "context_id" in data
-        assert "customer_profile" in data
-        # MockProfileRepository에서 자동 조회된 프로파일
-        assert data["customer_profile"]["user_id"] == "user_vip_001"
-        assert "attributes" in data["customer_profile"]
+        # 응답에는 Global 세션 키만 포함된다.
+        assert set(data.keys()) == {"global_session_key"}
 
     def test_create_session_success_with_ma(self, client, ma_headers):
         """MA가 세션 생성 (인증 비활성화 상태에서 가능)"""
         request_data = {
-            "user_id": "user_002",
-            "channel": "mobile",
-            "request_id": "req_test_002",
+            "userId": "user_002",
+            "startType": "ICON_ENTRY",
         }
         response = client.post("/api/v1/sessions", json=request_data, headers=ma_headers)
 
         assert response.status_code == 201
         data = response.json()
         assert data["global_session_key"].startswith("gsess_")
-        assert data["is_new"] is True
+        assert set(data.keys()) == {"global_session_key"}
 
     def test_create_session_without_profile(self, client, agw_headers):
         """프로파일 없는 사용자로 세션 생성"""
         request_data = {
-            "user_id": "user_no_profile",  # MockProfileRepository에 없는 사용자
-            "channel": "web",
-            "request_id": "req_test_003",
+            "userId": "user_no_profile",  # MockProfileRepository에 없는 사용자
+            "startType": "ICON_ENTRY",
         }
         response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
 
         assert response.status_code == 201
         data = response.json()
         assert data["global_session_key"].startswith("gsess_")
-        # customer_profile은 None
-        assert data["customer_profile"] is None
+        assert set(data.keys()) == {"global_session_key"}
 
 
 class TestSessionResolve:
@@ -79,9 +70,8 @@ class TestSessionResolve:
         """세션 조회 성공"""
         # 먼저 세션 생성
         create_req = {
-            "user_id": "user_vip_001",  # MockProfileRepository에 존재
-            "channel": "web",
-            "request_id": "req_resolve_001",
+            "userId": "user_vip_001",  # MockProfileRepository에 존재
+            "startType": "ICON_ENTRY",
         }
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
@@ -120,9 +110,8 @@ class TestSessionStatePatch:
         """세션 상태 업데이트"""
         # 세션 생성
         create_req = {
-            "user_id": "user_patch_001",
-            "channel": "web",
-            "request_id": "req_patch_001",
+            "userId": "user_patch_001",
+            "startType": "ICON_ENTRY",
         }
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
@@ -131,7 +120,6 @@ class TestSessionStatePatch:
         # 상태 업데이트
         patch_req = {
             "global_session_key": session["global_session_key"],
-            "conversation_id": "conv_patch_001",
             "turn_id": "turn_001",
             "session_state": "talk",
             "state_patch": {
@@ -170,9 +158,8 @@ class TestSessionClose:
         """세션 종료"""
         # 세션 생성
         create_req = {
-            "user_id": "user_close_001",
-            "channel": "web",
-            "request_id": "req_close_001",
+            "userId": "user_close_001",
+            "startType": "ICON_ENTRY",
         }
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
@@ -182,7 +169,6 @@ class TestSessionClose:
         response = client.delete(
             f"/api/v1/sessions/{session['global_session_key']}",
             params={
-                "conversation_id": "conv_close_001",
                 "close_reason": "test_completed",
             },
             headers=ma_headers,

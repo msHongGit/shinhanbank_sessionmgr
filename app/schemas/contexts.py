@@ -1,109 +1,13 @@
-"""Context 및 Turn 관련 스키마."""
+"""Context 및 Turn 관련 스키마.
+
+Sprint 3 이후: Context CRUD/조회 API는 제거하고,
+session_id, turn_id 기반 실시간 API 연동 결과 저장에만 사용한다.
+"""
 
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-# ============================================================================
-# Context 스키마
-# ============================================================================
-
-
-class ContextCreate(BaseModel):
-    """컨텍스트 생성 요청"""
-
-    context_id: str
-    global_session_key: str
-    user_id: str
-
-
-class ContextUpdate(BaseModel):
-    """컨텍스트 업데이트 요청"""
-
-    summary: str | None = None
-    current_intent: str | None = None
-    current_slots: dict[str, Any] = Field(default_factory=dict)
-    entities: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] | None = None
-
-
-class ContextResponse(BaseModel):
-    """컨텍스트 응답"""
-
-    context_id: str
-    global_session_key: str
-    user_id: str
-    summary: str | None = None
-    current_intent: str | None = None
-    current_slots: dict[str, Any] = Field(default_factory=dict)
-    entities: list[str] = Field(default_factory=list)
-    turn_count: int = 0
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: str
-    last_updated_at: str
-
-
-# =========================================================================
-# Turn 스키마 (대화 텍스트 제외)
-# ============================================================================
-
-
-class TurnCreate(BaseModel):
-    """턴 생성 요청 (메타데이터 전용)
-
-    - 실제 사용자/Agent 대화 텍스트는 Session Manager에 저장하지 않음
-    - turn_id, timestamp, metadata만 관리
-    """
-
-    turn_id: str = Field(..., description="턴 ID")
-    timestamp: str = Field(..., description="타임스탬프 (ISO8601)")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict,
-        description="턴 메타데이터 (이벤트/상태/외부 API 결과 등)",
-    )
-
-
-class TurnCreateWithAPI(BaseModel):
-    """API 호출 결과를 포함한 턴 생성 요청 (메타데이터 전용)
-
-    - 텍스트는 저장하지 않고, API 호출 결과/에이전트 정보를 메타데이터로 관리
-    """
-
-    turn_id: str = Field(..., description="턴 ID")
-    timestamp: str = Field(..., description="타임스탬프 (ISO8601)")
-    agent_session_key: str | None = Field(None, description="에이전트 세션 키 (업무 Agent인 경우)")
-    turn_number: int | None = Field(None, description="턴 번호 (optional, 없으면 자동 증가)")
-    role: str = Field(default="system", description="역할 (예: system/external 등)")
-    agent_id: str | None = Field(None, description="에이전트 ID")
-    agent_type: str | None = Field(None, description="에이전트 타입")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict,
-        description="API 호출 결과 포함 메타데이터",
-    )
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "turn_id": "turn_20260107_001",
-                "timestamp": "2026-01-07T10:30:00Z",
-                "agent_id": "dbs_caller",
-                "agent_type": "external",
-                "metadata": {
-                    "api_call": {
-                        "api_name": "get_exchange_rate",
-                        "params": {"from": "KRW", "to": "USD"},
-                        "result": {
-                            "rate": 1320.5,
-                            "timestamp": "2026-01-07T10:30:00Z",
-                        },
-                        "status": "success",
-                        "duration_ms": 150,
-                    }
-                },
-            }
-        }
-    )
 
 
 class TurnResponse(BaseModel):
@@ -114,9 +18,57 @@ class TurnResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class TurnListResponse(BaseModel):
-    """턴 목록 응답"""
+class SolDBSTransactionPayload(BaseModel):
+    """DBS 트랜잭션 요청 페이로드 (trxCd, dataBody)."""
 
-    context_id: str
-    turns: list[TurnResponse]
-    total_count: int
+    trx_cd: str = Field(..., alias="trxCd")
+    data_body: str | dict[str, Any] = Field(..., alias="dataBody")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SolDBSTransactionResult(BaseModel):
+    """DBS 트랜잭션 응답 결과 (trxCd, responseData)."""
+
+    trx_cd: str = Field(..., alias="trxCd")
+    response_data: str | dict[str, Any] = Field(..., alias="responseData")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SolApiResultRequest(BaseModel):
+    """실시간 API 연동 결과 저장 요청.
+
+    - sol_api.md 의 `/api/v1/sol/transaction`(RequestParam)
+      + `/api/v1/sol/transaction/result`(DBSTrxResponse) 구조를 합친다.
+    - 필드명은 SOL 측 스펙에 맞춰 camelCase alias를 사용한다.
+    """
+
+    # 필수 값
+    session_id: str = Field(..., alias="sessionId", description="세션 ID (Session Manager global_session_key)")
+    turn_id: str = Field(..., alias="turnId", description="턴 ID")
+
+    # 선택 값 (SOL 측에서 상황에 따라 포함될 수도, 생략될 수도 있음)
+    agent_id: str | None = Field(
+        None,
+        alias="agent",
+        description="호출한 업무 Agent ID (다른 API의 agent_id 와 동일 의미)",
+    )
+    transaction_payload: list[SolDBSTransactionPayload] | None = Field(
+        None,
+        alias="transactionPayload",
+        description="요청 시 사용된 DBS 전문 페이로드 목록 (없으면 생략 가능)",
+    )
+
+    glob_id: str | None = Field(None, alias="globId", description="GLOBALID (BXM 이벤트 ID, 옵션)")
+    request_id: str | None = Field(None, alias="requestId", description="요청 식별자 (옵션)")
+    result: str | None = Field(None, description="성공/실패 SUCCESS/FAIL (옵션)")
+    result_code: str | None = Field(None, alias="resultCode", description="실패 코드 (옵션)")
+    result_msg: str | None = Field(None, alias="resultMsg", description="실패 메시지 (옵션)")
+    transaction_result: list[SolDBSTransactionResult] | None = Field(
+        None,
+        alias="transactionResult",
+        description="DBS 전문 응답 결과 목록 (없으면 생략 가능)",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)

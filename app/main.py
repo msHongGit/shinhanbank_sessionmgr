@@ -1,7 +1,8 @@
 """Session Manager - Main Application (v4.0, Sprint 3).
 
 세션 상태 / 컨텍스트 메타데이터 / 에이전트 세션 매핑 관리 API 진입점.
-로컬에선 Mock/Redis, 운영에선 Redis + MariaDB 하이브리드 구성을 기준으로 한다.
+현재 Sprint 3 구현은 Redis 기반 세션/컨텍스트 캐시 + Mock Profile Repository만 사용하며,
+MariaDB(Context DB) 연동은 향후 스프린트에서 추가된다.
 """
 
 from contextlib import asynccontextmanager
@@ -45,32 +46,24 @@ app = FastAPI(
     title="Session Manager API",
     description=dedent(
         """
-        ## Session Manager v4.0 (Sprint 3)
+                ## Session Manager v4.0 (Sprint 3)
 
-        은행 AI Agent 시스템의 **세션 상태 / 컨텍스트 메타데이터 / 에이전트 세션 매핑**을 관리하는 서비스입니다.
+                - 세션 상태 (start / talk / end), SubAgent 상태, Task Queue 상태 관리
+                - Global 세션 ↔ 업무 Agent 세션 키 매핑 관리
+                - SOL 실시간 API 연동 결과 메타데이터 저장 (Context/Turn 메타데이터, 대화 텍스트는 저장하지 않음)
+                - 외부 Profile Repository에서 조회한 고객 개인화 프로파일 스냅샷 캐시
 
-        ### Session Manager가 관리하는 것
-        - 세션 상태 정보 (Session State, SubAgent Status, Task Queue Status)
-        - 에이전트 세션 매핑 (Global Session ↔ Agent Session Key)
-        - 컨텍스트 메타데이터 (현재 Intent, Slot, Entity, Turn Count 등)
-        - 대화 턴 메타데이터 (턴 번호, 역할, Agent 정보, 메타데이터) - **대화이력 제외**
+                - 주요 API:
+                    - `/api/v1/sessions` : 세션 생성 / 조회 / 상태 업데이트 / 종료
+                    - `/api/v1/contexts` : SOL 실시간 API 결과 저장 (turn-results 전용)
 
-        ### Session Manager가 관리하지 않는 것
-        - 실제 대화 텍스트/콘텐츠
-        - 대화 요약, Long-term 메모리
+                - 저장소:
+                    - Redis : 세션/컨텍스트/턴 메타데이터 캐시 및 저장 (기본 TTL 600초)
+                    - MariaDB(Context DB) : 향후 영구 저장용으로 연동 예정 (현재 미사용)
 
-        ### 주요 API 그룹
-        - `/api/v1/sessions` : 세션 생성 / 조회 / 상태 업데이트 / 종료 (AGW, MA, Client)
-        - `/api/v1/contexts` : 컨텍스트 및 턴 메타데이터 관리 (MA, Portal)
-
-        ### 저장소 구조 (Sprint 3 설계)
-        - Redis : 세션/컨텍스트 캐시 (저지연 조회)
-        - MariaDB : 세션, 에이전트 세션, 컨텍스트, 턴 메타데이터 영구 저장
-        - Hybrid Repository : 읽기는 Redis 우선, 쓰기는 Redis + MariaDB 동기화
-
-        ### 현재 실행 모드
-        - 로컬 개발: Mock Repository / Redis 기반 In-Memory 모드
-        - 운영: Redis + MariaDB 기반 하이브리드 모드 (설계 기준)
+                - 실행 모드:
+                    - 로컬/Dev: Redis + Mock Profile Repository (API Key 인증 비활성화)
+                    - 운영: Redis + MariaDB 하이브리드 모드 목표 (아직 미구현)
         """
     ),
     version="4.0.0",

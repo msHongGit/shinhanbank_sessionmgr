@@ -40,6 +40,7 @@ class MockSessionRepository(SessionRepositoryInterface):
         task_queue_status: str,
         subagent_status: str,
         customer_profile: dict[str, Any] | None = None,
+        start_type: str | None = None,
     ) -> dict[str, Any]:
         """세션 생성"""
         if global_session_key in self._sessions:
@@ -60,6 +61,10 @@ class MockSessionRepository(SessionRepositoryInterface):
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
         }
+
+        if start_type is not None:
+            # AGW startType 등 세션 진입 유형 메타데이터로 저장
+            session["start_type"] = start_type
 
         if customer_profile is not None:
             session["customer_profile"] = json.dumps(customer_profile)
@@ -90,6 +95,21 @@ class MockSessionRepository(SessionRepositoryInterface):
             del self._sessions[global_session_key]
             return True
         return False
+
+    def refresh_ttl(self, global_session_key: str) -> dict[str, Any] | None:
+        """세션 TTL 연장 (Mock).
+
+        In-memory 구현에서는 expires_at 필드만 현재 시각 기준으로 다시 계산한다.
+        """
+
+        session = self._sessions.get(global_session_key)
+        if not session:
+            return None
+
+        now = datetime.now(UTC)
+        session["expires_at"] = (now + timedelta(hours=1)).isoformat()
+        session["updated_at"] = now.isoformat()
+        return session
 
     def set_local_mapping(self, global_session_key: str, agent_id: str, local_session_key: str, agent_type: str) -> str:
         """Global↔Local 세션 매핑 등록"""

@@ -35,6 +35,7 @@ class RedisSessionRepository(SessionRepositoryInterface):
         subagent_status: str,
         customer_profile: dict[str, Any] | None = None,
         profile: dict[str, Any] | None = None,
+        start_type: str | None = None,
     ) -> dict[str, Any]:
         """세션 생성 (존재 시 기존 세션 반환)"""
         existing = self.helper.get_session(global_session_key)
@@ -59,6 +60,10 @@ class RedisSessionRepository(SessionRepositoryInterface):
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
         }
+
+        if start_type is not None:
+            # AGW startType 등 세션 진입 유형 메타데이터로 저장
+            session["start_type"] = start_type
 
         if customer_profile is not None:
             # 세션에 개인화 프로파일 스냅샷 저장 (JSON 직렬화)
@@ -86,6 +91,23 @@ class RedisSessionRepository(SessionRepositoryInterface):
         self.helper.delete_session(global_session_key)
         after = self.helper.get_session(global_session_key)
         return before is not None and after is None
+
+    def refresh_ttl(self, global_session_key: str) -> dict[str, Any] | None:
+        """세션 TTL 연장 및 만료 시각 갱신.
+
+        세션이 존재하면 SESSION_CACHE_TTL 기준으로 expires_at을 다시 설정하고 Redis TTL도 연장한다.
+        존재하지 않으면 None을 반환한다.
+        """
+
+        session = self.helper.get_session(global_session_key)
+        if not session:
+            return None
+
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(seconds=SESSION_CACHE_TTL)
+        session["expires_at"] = expires_at.isoformat()
+        self.helper.set_session(global_session_key, session, ttl=SESSION_CACHE_TTL)
+        return session
 
     # ============ Global↔Local Session Mapping ============
 

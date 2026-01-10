@@ -14,6 +14,7 @@ from app.schemas.common import (
     SessionCreateResponse,
     SessionPatchRequest,
     SessionPatchResponse,
+    SessionPingResponse,
     SessionResolveRequest,
     SessionResolveResponse,
 )
@@ -41,8 +42,12 @@ def get_session_service() -> SessionService:
     description="""
     세션을 생성합니다.
 
-    - 새 세션 생성 시 conversation_id, context_id 발급
-    - 기존 세션이 유효하면 기존 정보 반환 (is_new=false)
+    필수 요청 필드:
+    - userId: 세션을 식별할 사용자 ID
+    - startType: 세션 진입 유형 (예: ICON_ENTRY, SOL_PAGE_ENTRY 등)
+
+    주요 응답 필드:
+    - global_session_key: 이후 모든 호출에서 사용하는 세션 키 (그 외 메타데이터는 조회 API에서 확인)
     """,
 )
 async def create_session(
@@ -70,13 +75,23 @@ async def create_session(
     description="""
     세션을 조회합니다.
 
-    - 세션 상태, Task Queue 상태, SubAgent 상태 등 반환
-    - 업무 Agent인 경우 Global↔Local 매핑도 조회
+    필수 경로 변수:
+    - global_session_key: 조회할 세션 키
+
+    선택 쿼리 파라미터:
+    - agent_type, agent_id: 업무 Agent용 로컬 세션 키 조회에 사용
+
+    주요 응답 필드:
+    - global_session_key: 조회된 세션 키
+    - session_state: 현재 세션 상태 (start/talk/end)
+    - is_first_call: start 상태인지 여부
+    - task_queue_status, subagent_status: 백엔드 작업/서브에이전트 상태
+    - agent_session_key: (옵션) 업무 Agent 로컬 세션 키 매핑 결과
+    - customer_profile: 세션에 저장된 고객 프로파일 (없으면 null)
     """,
 )
 async def get_session(
     global_session_key: str,
-    channel: str | None = Query(None, description="채널 (옵션)"),
     agent_type: AgentType | None = Query(None, description="Agent 유형 (옵션)"),
     agent_id: str | None = Query(None, description="Agent ID (옵션)"),
     service: SessionService = Depends(get_session_service),
@@ -90,11 +105,36 @@ async def get_session(
     """
     request = SessionResolveRequest(
         global_session_key=global_session_key,
-        channel=channel,
         agent_type=agent_type,
         agent_id=agent_id,
     )
     return service.resolve_session(request)
+
+
+# ============ 세션 Ping (생존 확인 및 TTL 연장) ============
+
+
+@router.get(
+    "/{global_session_key}/ping",
+    response_model=SessionPingResponse,
+    summary="세션 생존 확인 및 TTL 연장",
+    description="""
+    세션이 살아있는지 간략히 조회하고, 살아있다면 TTL을 연장합니다.
+
+    필수 경로 변수:
+    - global_session_key: Ping 대상 세션 키
+
+    주요 응답 필드:
+    - is_alive: 세션 존재 여부 (false면 세션이 없거나 만료됨)
+    - expires_at: TTL 연장 후 만료 예정 시각 (is_alive=false이면 null)
+    """,
+)
+async def ping_session(
+    global_session_key: str,
+    service: SessionService = Depends(get_session_service),
+):
+    """세션 Ping API (헬스체크/TTL 연장용)."""
+    return service.ping_session(global_session_key)
 
 
 # ============ 세션 상태 업데이트 ============
@@ -105,10 +145,28 @@ async def get_session(
     response_model=SessionPatchResponse,
     summary="세션 상태 업데이트",
     description="""
-    세션 상태를 업데이트합니다.
+        세션 상태를 업데이트합니다.
 
-    - SubAgent 상태, 마지막 이벤트 등 업데이트
-    - SA 응답 후 MA가 호출
+        필수 경로 변수:
+        - global_session_key: 상태를 변경할 세션 키
+
+        필수 요청 필드:
+        - global_session_key: Path 변수와 동일해야 함
+
+        선택 요청 필드 (Patch 방식):
+        - session_state: 세션 상태 (start/talk/end) - 전송 시에만 변경
+        - turn_id: 이 업데이트가 대응하는 턴 ID (이벤트 추적용)
+        - state_patch: 업데이트할 세부 상태(서브에이전트 상태, 마지막 이벤트, session_attributes 등)
+
+        session_state 값:
+        - start: 세션 시작 상태
+        - talk: 대화 진행 중 상태
+        - end: 세션 종료 상태
+
+        주요 동작:
+        - SubAgent 상태, 마지막 이벤트, 세션 메타데이터(session_attributes) 업데이트
+        - state_patch.agent_session_key + last_agent_id 가 함께 오면
+            해당 Agent에 대한 Global↔Local 세션 매핑을 Redis에 등록
     """,
 )
 async def update_session_state(
@@ -142,12 +200,20 @@ async def update_session_state(
     description="""
     세션을 종료합니다.
 
-    - 세션 상태를 'end'로 변경
+    필수 경로 변수:
+    - global_session_key: 종료할 세션 키
+
+    선택 쿼리 파라미터:
+    - close_reason: 종료 사유 (user_exit, timeout 등)
+
+    주요 응답 필드:
+    - status: 처리 결과 (success)
+    - closed_at: 세션 종료 시각
+    - archived_conversation_id: 세션 기준 아카이브 ID (arch_{global_session_key})
     """,
 )
 async def close_session(
     global_session_key: str,
-    conversation_id: str | None = Query(None, description="대화 ID (옵션)"),
     close_reason: str | None = Query(None, description="종료 사유 (옵션)"),
     service: SessionService = Depends(get_session_service),
 ):
@@ -159,7 +225,6 @@ async def close_session(
     """
     request = SessionCloseRequest(
         global_session_key=global_session_key,
-        conversation_id=conversation_id,
         close_reason=close_reason,
     )
     return service.close_session(request)

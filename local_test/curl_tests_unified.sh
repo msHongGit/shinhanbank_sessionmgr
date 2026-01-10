@@ -4,6 +4,7 @@ set -euo pipefail
 # Session Manager 통합 API 테스트 스크립트
 # 새로운 /api/v1/sessions 엔드포인트 사용
 
+
 BASE_URL="${BASE_URL:-http://sol-session-manager.crewai-axd.com}"
 AGW_API_KEY="${AGW_API_KEY:-changeme-agw}"
 MA_API_KEY="${MA_API_KEY:-changeme-ma}"

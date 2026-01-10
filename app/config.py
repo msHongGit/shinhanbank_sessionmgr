@@ -46,9 +46,9 @@ REDIS_URL: str = os.getenv(
 REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", "10"))
 
 # === TTL Settings ===
-SESSION_CACHE_TTL: int = int(os.getenv("SESSION_CACHE_TTL", "3600"))
-LOCAL_SESSION_TTL: int = int(os.getenv("LOCAL_SESSION_TTL", "1800"))
-SESSION_MAP_TTL: int = int(os.getenv("SESSION_MAP_TTL", "3600"))
+# 기본 TTL은 600초(5분)로 설정하며, 환경변수로 오버라이드 가능
+SESSION_CACHE_TTL: int = int(os.getenv("SESSION_CACHE_TTL", "600"))
+SESSION_MAP_TTL: int = int(os.getenv("SESSION_MAP_TTL", "600"))
 
 # === PostgreSQL (향후 사용) ===
 DATABASE_URL: str = os.getenv(

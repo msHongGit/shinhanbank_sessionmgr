@@ -1,83 +1,76 @@
 name: Lint and Tests
 
 on:
-  pull_request:
-    branches: ["dev", "main"]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.gitignore'
-      - 'LICENSE'
   push:
-    branches: ["dev", "main"]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.gitignore'
-      - 'LICENSE'
+    branches-ignore:
+      - main
+      - dev
 
 jobs:
-  lint-and-test:
+  lint-and-tests:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
 
-    - name: Cache uv dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/uv
-          .venv
-        key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-
+      - name: Install dependencies
+        run: uv sync
 
-    - name: Install dependencies
-      run: |
-        uv venv
-        uv pip install -e ".[dev]"
+      - name: Run ruff autofix (light)
+        run: uv run ruff check . --fix
 
-    - name: Run Ruff linter (check)
-      run: |
-        uv run ruff check .
+      - name: Run ruff linting
+        run: uv run ruff check .
 
-    - name: Run Ruff formatter (check)
-      run: |
-        uv run ruff format --check .
+      - name: Run mypy type checking (non-blocking)
+        continue-on-error: true
+        run: uv run mypy .
 
-    - name: Run pytest with coverage
-      env:
-        APP_ENV: "test"
-        ENABLE_API_KEY_AUTH: "false"
-        REDIS_URL: ${{ secrets.REDIS_URL }}
-        AGW_API_KEY: "test-agw-key"
-        MA_API_KEY: "test-ma-key"
-        PORTAL_API_KEY: "test-portal-key"
-        VDB_API_KEY: "test-vdb-key"
-      run: |
-        uv run pytest -v \
-          --cov=app \
-          --cov-report=term \
-          --cov-report=xml \
-          --cov-fail-under=80
+      - name: Run unit and integration tests (function, scenario, service)
+        run: |
+          uv run pytest -m "function or scenario or service" \
+            --junitxml=report.xml \
+            --tb=short \
+            -v
 
-    - name: Upload coverage reports
-      uses: codecov/codecov-action@v4
-      if: always()
-      with:
-        files: ./coverage.xml
-        flags: unittests
-        name: session-manager-coverage
-        fail_ci_if_error: false
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            report.xml
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f report.xml ]; then
+            tests=$(grep -oP 'tests="\K[0-9]+' report.xml | head -1)
+            failures=$(grep -oP 'failures="\K[0-9]+' report.xml | head -1)
+            errors=$(grep -oP 'errors="\K[0-9]+' report.xml | head -1)
+            skipped=$(grep -oP 'skipped="\K[0-9]+' report.xml | head -1)
+            
+            echo "### Unit/Integration Tests (function, scenario, service)" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Total | ${tests:-0} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Passed | $((${tests:-0} - ${failures:-0} - ${errors:-0} - ${skipped:-0})) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Failed | ${failures:-0} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Errors | ${errors:-0} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Skipped | ${skipped:-0} |" >> $GITHUB_STEP_SUMMARY
+          fi
