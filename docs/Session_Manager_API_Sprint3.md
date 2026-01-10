@@ -116,56 +116,42 @@ POST /api/v1/sessions
 
 ```json
 {
-  "user_id": "user_001",
-  "channel": "app",
-  "request_id": "req_20260108_0001",
-  "device_info": {
-    "os": "iOS",
-    "app_version": "1.0.0"
+  "userId": "user_001",
+  "channel": {
+    "eventType": "ICON_ENTRY",
+    "eventChannel": "web"
   }
 }
 ```
 
-| 필드        | 타입    | 필수 | 설명                                                         |
-|-------------|---------|------|--------------------------------------------------------------|
-| user_id     | string  | ✅   | 사용자 ID                                                   |
-| channel     | string  | ✅   | 채널 (예: `web`, `app`, `kiosk`, `ivr`)                     |
-| request_id  | string  | ❌   | 호출 추적용 ID (로깅/분석 용도)                             |
-| device_info | object  | ❌   | 디바이스/클라이언트 정보 (자유 형식 JSON)                  |
+| 필드      | 타입   | 필수 | 설명                                                                 |
+|-----------|--------|------|----------------------------------------------------------------------|
+| userId    | string | ✅   | 사용자 ID                                                            |
+| channel   | object | ❌   | 이벤트/채널 정보 딕셔너리 (없으면 기본 채널 `utterance` 로 처리)    |
 
-> Sprint 2와 달리 **요청에 `customer_profile`는 받지 않습니다.**  
-> 개인화 프로파일은 **배치가 프로파일 DB에 저장**해 두고, SM은 여기서 **조회만** 합니다.
+`channel` 필드 구조:
+
+```json
+"channel": {
+  "eventType": "ICON_ENTRY",   // 기존 startType 개념
+  "eventChannel": "web"        // 기존 channel (web, kiosk 등)
+}
+```
+
+> Sprint 3 구현에서는 **요청에 `customer_profile` 를 받지 않습니다.**  
+> 개인화 프로파일은 **외부 Profile Repository(DB)** 에 저장되어 있고, Session Manager는 여기서 **조회만** 합니다.
 
 **Response Body – `SessionCreateResponse` (예시)**
 
 ```json
 {
-  "global_session_key": "gsess_20260108_abcd1234",
-  "context_id": "ctx_20260108_ijkl9012",
-  "session_state": "start",
-  "is_new": true,
-  "created_at": "2026-01-08T09:00:00Z",
-  "expires_at": "2026-01-08T10:00:00Z",
-  "customer_profile": {
-    "user_id": "user_001",
-    "attributes": [],
-    "segment": "VIP",
-    "preferences": {
-      "marketing_opt_in": true
-    }
-  }
+  "global_session_key": "gsess_20260108_abcd1234"
 }
 ```
 
-| 필드               | 타입    | 설명                                                                 |
-|--------------------|---------|----------------------------------------------------------------------|
-| global_session_key | string  | 세션 전체를 대표하는 **글로벌 세션 ID**                             |
-| context_id         | string  | 컨텍스트/턴 메타데이터를 묶는 ID                                     |
-| session_state      | string  | 세션 상태 (`start` / `talk` / `end` 등)                             |
-| is_new             | bool    | 새로 생성된 세션인지 (`true`) / 기존 세션 재사용인지 (`false`)      |
-| created_at         | string  | 세션 생성 시각 (ISO8601)                                            |
-| expires_at         | string  | 세션 만료 예정 시각 (TTL 기반)                                      |
-| customer_profile   | object  | 개인화 프로파일 스냅샷 (없으면 `null`)                              |
+| 필드               | 타입   | 설명                                                             |
+|--------------------|--------|------------------------------------------------------------------|
+| global_session_key | string | 세션 전체를 대표하는 **글로벌 세션 ID** (이후 모든 호출에 사용) |
 
 ---
 
@@ -186,23 +172,48 @@ GET /api/v1/sessions/{global_session_key}
 **Query Parameters**
 
 ```http
-GET /api/v1/sessions/gsess_20260108_abcd1234?channel=app&agent_type=task&agent_id=transfer_agent
+GET /api/v1/sessions/gsess_20260108_abcd1234?agent_type=task&agent_id=transfer_agent
 ```
 
-| 파라미터  | 타입                  | 필수 | 설명                                                                |
-|-----------|-----------------------|------|---------------------------------------------------------------------|
-| channel   | string                | ❌   | 채널 (주로 로깅/분석용; 생략 가능)                                 |
-| agent_type| `AgentType` enum      | ❌   | Agent 유형 (`task`/`knowledge` 등, 업무 Agent면 보통 `task`)       |
-| agent_id  | string                | ❌   | Agent ID (예: `transfer_agent`, `dbs_caller`)                       |
+| 파라미터   | 타입             | 필수 | 설명                                                              |
+|------------|------------------|------|-------------------------------------------------------------------|
+| agent_type | `AgentType` enum | ❌   | Agent 유형 (`task`/`knowledge` 등, 업무 Agent면 보통 `task`)     |
+| agent_id   | string           | ❌   | Agent ID (예: `transfer_agent`, `dbs_caller`)                     |
 
 **Response Body – `SessionResolveResponse` (예시)**
 
 ```json
 {
   "global_session_key": "gsess_20260108_abcd1234",
+  "channel": {
+    "eventType": "ICON_ENTRY",
+    "eventChannel": "web"
+  },
   "agent_session_key": "asess_transfer_001",
-  "conversation_id": "conv_20260108_efgh5678",
-  "context_id": "ctx_20260108_ijkl9012",
-  "session_state": "talk",
-  "is_first_call": false,
-  "task_queue_
+  "session_state": "start",
+  "is_first_call": true,
+  "task_queue_status": "null",
+  "subagent_status": "undefined",
+  "last_event": null,
+  "customer_profile": {
+    "user_id": "user_001",
+    "attributes": [],
+    "segment": "VIP",
+    "preferences": {
+      "marketing_opt_in": true
+    }
+  }
+}
+```
+
+| 필드               | 타입   | 설명                                                                 |
+|--------------------|--------|----------------------------------------------------------------------|
+| global_session_key | string | 조회된 세션의 글로벌 세션 키                                        |
+| channel            | object | 세션 채널/이벤트 정보 (`eventType`, `eventChannel`)                  |
+| agent_session_key  | string | 업무 Agent 로컬 세션 키 (요청 시 `agent_type`+`agent_id` 가 있을 때만 세팅) |
+| session_state      | string | 세션 상태 (`start` / `talk` / `end`)                                |
+| is_first_call      | bool   | 세션이 `start` 상태인지 여부                                        |
+| task_queue_status  | string | 백엔드 Task Queue 상태 (`null` / `notnull`)                          |
+| subagent_status    | string | SubAgent 상태 (`undefined` / `continue` / `end`)                     |
+| last_event         | object | 마지막 이벤트 정보 (없으면 `null`)                                   |
+| customer_profile   | object | 고객 개인화 프로파일 스냅샷 (없으면 `null`)                          |

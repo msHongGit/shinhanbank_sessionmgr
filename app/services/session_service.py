@@ -28,6 +28,7 @@ from app.repositories import (
 )
 from app.schemas.common import (
     AgentType,
+    ChannelInfo,
     CustomerProfile,
     LastEvent,
     SessionCloseRequest,
@@ -120,21 +121,26 @@ class SessionService:
                 # Redis 스냅샷 저장용 raw dict (조회 응답에서 사용)
                 profile_data = customer_profile.model_dump()
 
-        # 채널은 요청 값이 없으면 기본값으로 대체
-        channel = request.channel or "utterance"
+        # 채널 및 세션 진입 유형은 channel 정보에서 파생 (없으면 기본값 사용)
+        start_type_value: str | None = None
+        if request.channel is not None:
+            channel_value = request.channel.event_channel
+            start_type_value = request.channel.event_type
+        else:
+            channel_value = "utterance"
 
         # Redis 즉시 저장 (세션 스냅샷)
         self.session_repo.create(
             global_session_key=global_session_key,
             user_id=request.user_id,
-            channel=channel,
+            channel=channel_value,
             conversation_id="",  # Pass empty string instead of conversation_id
             context_id=context_id,
             session_state=SessionState.START.value,
             task_queue_status=TaskQueueStatus.NULL.value,
             subagent_status=SubAgentStatus.UNDEFINED.value,
             customer_profile=profile_data,
-            start_type=request.start_type,
+            start_type=start_type_value,
         )
 
         # Context 생성
@@ -181,9 +187,19 @@ class SessionService:
             except (json.JSONDecodeError, ValueError):
                 pass
 
+        channel_info: ChannelInfo | None = None
+        stored_channel = session.get("channel")
+        stored_start_type = session.get("start_type")
+        if stored_channel or stored_start_type:
+            # 최소한 하나라도 있으면 ChannelInfo 구성 (없으면 빈 문자열 대체)
+            channel_info = ChannelInfo(
+                event_type=stored_start_type or "",
+                event_channel=stored_channel or "",
+            )
+
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
-            channel=session.get("channel"),
+            channel=channel_info,
             agent_session_key=agent_session_key,
             session_state=SessionState(session.get("session_state", "start")),
             is_first_call=session.get("session_state") == "start",

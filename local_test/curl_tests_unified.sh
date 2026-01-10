@@ -45,7 +45,6 @@ if SESSION_RESPONSE=$(curl -sS -X POST "${BASE_URL}/api/v1/sessions" \
   -H "X-API-Key: ${AGW_API_KEY}" \
   -d '{
     "userId": "user-001",
-    "startType": "ICON_ENTRY"
   }'); then
   echo "Response: ${SESSION_RESPONSE}"
   GLOBAL_SESSION_KEY=$(printf '%s' "${SESSION_RESPONSE}" | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d.get("global_session_key", ""))')

@@ -26,7 +26,6 @@ class TestSessionCreate:
         """AGW가 세션 생성 - 프로파일 자동 조회 (MariaDB context_db에서)"""
         request_data = {
             "userId": "user_vip_001",  # MockProfileRepository에 존재하는 사용자
-            "startType": "ICON_ENTRY",
         }
         response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
 
@@ -40,7 +39,6 @@ class TestSessionCreate:
         """MA가 세션 생성 (인증 비활성화 상태에서 가능)"""
         request_data = {
             "userId": "user_002",
-            "startType": "ICON_ENTRY",
         }
         response = client.post("/api/v1/sessions", json=request_data, headers=ma_headers)
 
@@ -53,7 +51,6 @@ class TestSessionCreate:
         """프로파일 없는 사용자로 세션 생성"""
         request_data = {
             "userId": "user_no_profile",  # MockProfileRepository에 없는 사용자
-            "startType": "ICON_ENTRY",
         }
         response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
 
@@ -71,8 +68,10 @@ class TestSessionResolve:
         # 먼저 세션 생성
         create_req = {
             "userId": "user_vip_001",  # MockProfileRepository에 존재
-            "startType": "ICON_ENTRY",
-            "channel": "web",
+            "channel": {
+                "eventType": "ICON_ENTRY",
+                "eventChannel": "web",
+            },
         }
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
@@ -88,7 +87,8 @@ class TestSessionResolve:
         assert response.status_code == 200
         data = response.json()
         assert data["global_session_key"] == global_session_key
-        assert data["channel"] == "web"
+        assert data["channel"]["eventChannel"] == "web"
+        assert data["channel"]["eventType"] == "ICON_ENTRY"
         assert data["session_state"] == "start"
         assert data["is_first_call"] is True
         assert "customer_profile" in data
@@ -113,7 +113,6 @@ class TestSessionStatePatch:
         # 세션 생성
         create_req = {
             "userId": "user_patch_001",
-            "startType": "ICON_ENTRY",
         }
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
@@ -161,7 +160,6 @@ class TestSessionClose:
         # 세션 생성
         create_req = {
             "userId": "user_close_001",
-            "startType": "ICON_ENTRY",
         }
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201

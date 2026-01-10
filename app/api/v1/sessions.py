@@ -44,10 +44,11 @@ def get_session_service() -> SessionService:
 
     필수 요청 필드:
     - userId: 세션을 식별할 사용자 ID
-    - startType: 세션 진입 유형 (예: ICON_ENTRY, SOL_PAGE_ENTRY 등)
 
     선택 요청 필드:
-    - channel: 호출 채널 (web, mobile 등, 옵션)
+    - channel: 이벤트/채널 정보 딕셔너리 (옵션)
+        - eventType: 세션 진입 유형 (예: ICON_ENTRY)
+        - eventChannel: 호출 채널 (예: web, kiosk 등)
 
     주요 응답 필드:
     - global_session_key: 이후 모든 호출에서 사용하는 세션 키 (그 외 메타데이터는 조회 API에서 확인)
@@ -86,7 +87,9 @@ async def create_session(
 
     주요 응답 필드:
     - global_session_key: 조회된 세션 키
-    - channel: 세션이 생성된 채널 (옵션)
+    - channel: 세션 채널/이벤트 정보 (옵션)
+        - eventType: 세션 진입 유형 (기존 startType)
+        - eventChannel: 세션 채널 (기존 channel, web/kiosk 등)
     - session_state: 현재 세션 상태 (start/talk/end)
     - is_first_call: start 상태인지 여부
     - task_queue_status, subagent_status: 백엔드 작업/서브에이전트 상태

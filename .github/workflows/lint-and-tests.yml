@@ -38,9 +38,9 @@ jobs:
         continue-on-error: true
         run: uv run mypy .
 
-      - name: Run unit and integration tests (function, scenario, service)
+      - name: Run unit and integration tests
         run: |
-          uv run pytest -m "function or scenario or service" \
+          uv run pytest \
             --junitxml=report.xml \
             --tb=short \
             -v
