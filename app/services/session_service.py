@@ -120,11 +120,14 @@ class SessionService:
                 # Redis 스냅샷 저장용 raw dict (조회 응답에서 사용)
                 profile_data = customer_profile.model_dump()
 
+        # 채널은 요청 값이 없으면 기본값으로 대체
+        channel = request.channel or "utterance"
+
         # Redis 즉시 저장 (세션 스냅샷)
         self.session_repo.create(
             global_session_key=global_session_key,
             user_id=request.user_id,
-            channel="utterance",
+            channel=channel,
             conversation_id="",  # Pass empty string instead of conversation_id
             context_id=context_id,
             session_state=SessionState.START.value,
@@ -180,6 +183,7 @@ class SessionService:
 
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
+            channel=session.get("channel"),
             agent_session_key=agent_session_key,
             session_state=SessionState(session.get("session_state", "start")),
             is_first_call=session.get("session_state") == "start",

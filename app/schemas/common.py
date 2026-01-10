@@ -140,7 +140,8 @@ class SessionCreateRequest(BaseModel):
     """초기 세션 생성 요청 (AGW → SM)
 
     Session Manager가 Global Session Key를 생성하여 반환하며,
-    요청 바디는 userId, startType 두 필드만 사용한다.
+    요청 바디는 userId, startType 을 필수로 사용하고
+    channel 은 선택적으로 사용할 수 있다.
     """
 
     user_id: str = Field(..., alias="userId", description="사용자 ID")
@@ -150,6 +151,10 @@ class SessionCreateRequest(BaseModel):
         description="세션 진입 유형 (예: ICON_ENTRY, SOL_PAGE_ENTRY 등)",
     )
 
+    channel: str | None = Field(
+        None,
+        description="채널 (옵션, 예: web, mobile, kiosk 등)",
+    )
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -186,6 +191,7 @@ class SessionResolveResponse(BaseModel):
     """세션 조회 응답"""
 
     global_session_key: str = Field(..., description="Global 세션 키")
+    channel: str | None = Field(None, description="세션이 생성된 채널 (옵션)")
     agent_session_key: str | None = Field(None, description="업무 Agent 세션 키")
     session_state: SessionState = Field(..., description="세션 상태")
     is_first_call: bool = Field(..., description="최초 호출 여부")

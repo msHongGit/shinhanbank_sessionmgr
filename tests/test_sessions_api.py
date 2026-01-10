@@ -72,6 +72,7 @@ class TestSessionResolve:
         create_req = {
             "userId": "user_vip_001",  # MockProfileRepository에 존재
             "startType": "ICON_ENTRY",
+            "channel": "web",
         }
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
@@ -87,6 +88,7 @@ class TestSessionResolve:
         assert response.status_code == 200
         data = response.json()
         assert data["global_session_key"] == global_session_key
+        assert data["channel"] == "web"
         assert data["session_state"] == "start"
         assert data["is_first_call"] is True
         assert "customer_profile" in data

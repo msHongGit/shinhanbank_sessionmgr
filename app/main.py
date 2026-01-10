@@ -107,6 +107,12 @@ def root_health_check():
     }
 
 
+@app.get("/health", tags=["Health"])
+def health_check():
+    """외부 헬스체크용 /health 엔드포인트 (루트와 동일 응답)."""
+    return root_health_check()
+
+
 app.include_router(api_router, prefix=API_PREFIX)
 
 
