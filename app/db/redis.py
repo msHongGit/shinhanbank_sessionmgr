@@ -74,8 +74,14 @@ class RedisHelper:
     def update_session(self, global_session_key: str, updates: dict[str, Any]) -> None:
         """세션 업데이트"""
         key = f"session:{global_session_key}"
-        if self.client.exists(key):
-            self.client.hset(key, mapping=updates)
+        if not self.client.exists(key):
+            return
+
+        clean_updates = {k: v for k, v in updates.items() if v is not None}
+        if not clean_updates:
+            return
+
+        self.client.hset(key, mapping=clean_updates)
 
     def get_all_sessions(self, pattern: str = "session:*") -> list[dict[str, Any]]:
         """모든 세션 조회"""

@@ -2,10 +2,10 @@
 
 이 모듈은 더 이상 사용되지 않는 /agent-sessions API에 대한 테스트를 포함하고 있었으나,
 Agent 세션 매핑은 세션 상태 업데이트(PATCH /sessions/{global_session_key}/state)를 통해
-처리하도록 변경되었습니다. pytest 수집 시 영향을 주지 않도록 테스트 코드를 제거합니다.
+처리하도록 변경되었습니다.
+
+실제 동작을 검증하는 테스트는 모두 Unified Sessions API 테스트로 이전되었기 때문에,
+이 파일에는 더 이상 개별 테스트 함수를 두지 않습니다.
 """
 
-
-def test_placeholder_noop() -> None:  # pragma: no cover
-    """Placeholder to keep module importable without running legacy tests."""
-    assert True
+# intentionally left without tests

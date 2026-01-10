@@ -8,9 +8,11 @@ def test_save_sol_api_result_as_turn_metadata(client, agw_headers, ma_headers):
 
     # 1) 세션 생성 (global_session_key 확보)
     session_req = {
-        "user_id": "user_sol_001",
-        "channel": "web",
-        "request_id": "req_sol_001",
+        "userId": "user_sol_001",
+        "channel": {
+            "eventType": "ICON_ENTRY",
+            "eventChannel": "web",
+        },
     }
     session_resp = client.post("/api/v1/sessions", json=session_req, headers=agw_headers)
     assert session_resp.status_code == 201

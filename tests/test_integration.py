@@ -12,9 +12,11 @@ class TestSessionLifecycle:
         """세션 생성 → 조회 → 업데이트 → 종료"""
         # 1. 세션 생성 (AGW) - SM이 global_session_key 자동 생성
         create_req = {
-            "user_id": "user_int_test",
-            "channel": "mobile",
-            "request_id": "req_int_001",
+            "userId": "user_int_test",
+            "channel": {
+                "eventType": "ICON_ENTRY",
+                "eventChannel": "mobile",
+            },
         }
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
