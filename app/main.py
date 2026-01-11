@@ -49,7 +49,9 @@ app = FastAPI(
                 ## Session Manager v4.0 (Sprint 3)
 
                 - 세션 상태 (start / talk / end), SubAgent 상태, Task Queue 상태 관리
-                - Global 세션 ↔ 업무 Agent 세션 키 매핑 관리
+                                - Global 세션 ↔ 업무 Agent 세션 키 매핑 관리
+                                - 멀티턴 컨텍스트(reference_information)를 세션 조회 응답에서 옵션 A 구조로 노출
+                                    (active_task, conversation_history, current_intent 등)
                 - SOL 실시간 API 연동 결과 메타데이터 저장 (Context/Turn 메타데이터, 대화 텍스트는 저장하지 않음)
                 - 외부 Profile Repository에서 조회한 고객 개인화 프로파일 스냅샷 캐시
 

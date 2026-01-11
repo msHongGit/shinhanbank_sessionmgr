@@ -187,6 +187,34 @@ class SessionService:
             except (json.JSONDecodeError, ValueError):
                 pass
 
+        # 멀티턴 reference_information 파싱 (mulititurn.md 옵션 A)
+        ref_info_raw = session.get("reference_information")
+        ref_info: dict[str, Any] | None = None
+        if isinstance(ref_info_raw, str):
+            try:
+                parsed = json.loads(ref_info_raw)
+                if isinstance(parsed, dict):
+                    ref_info = parsed
+            except json.JSONDecodeError:
+                ref_info = None
+        elif isinstance(ref_info_raw, dict):
+            ref_info = ref_info_raw
+
+        active_task = None
+        conversation_history = None
+        current_intent = None
+        current_task_id = None
+        task_queue_status_detail = None
+        turn_count = None
+
+        if isinstance(ref_info, dict):
+            active_task = ref_info.get("active_task")
+            conversation_history = ref_info.get("conversation_history")
+            current_intent = ref_info.get("current_intent")
+            current_task_id = ref_info.get("current_task_id")
+            task_queue_status_detail = ref_info.get("task_queue_status")
+            turn_count = ref_info.get("turn_count")
+
         channel_info: ChannelInfo | None = None
         stored_channel = session.get("channel")
         stored_start_type = session.get("start_type")
@@ -199,6 +227,7 @@ class SessionService:
 
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
+            user_id=session.get("user_id", ""),
             channel=channel_info,
             agent_session_key=agent_session_key,
             session_state=SessionState(session.get("session_state", "start")),
@@ -207,6 +236,12 @@ class SessionService:
             subagent_status=SubAgentStatus(session.get("subagent_status", "undefined")),
             last_event=last_event,
             customer_profile=self._load_customer_profile(session),
+            active_task=active_task,
+            conversation_history=conversation_history,
+            current_intent=current_intent,
+            current_task_id=current_task_id,
+            task_queue_status_detail=task_queue_status_detail,
+            turn_count=turn_count,
         )
 
     def patch_session_state(self, request: SessionPatchRequest, background_tasks: BackgroundTasks | None = None) -> SessionPatchResponse:

@@ -206,6 +206,7 @@ class SessionResolveResponse(BaseModel):
     """세션 조회 응답"""
 
     global_session_key: str = Field(..., description="Global 세션 키")
+    user_id: str = Field(..., description="세션 사용자 ID")
     channel: ChannelInfo | None = Field(None, description="세션 채널/이벤트 정보 (EventType, EventChannel)")
     agent_session_key: str | None = Field(None, description="업무 Agent 세션 키")
     session_state: SessionState = Field(..., description="세션 상태")
@@ -216,6 +217,32 @@ class SessionResolveResponse(BaseModel):
     customer_profile: CustomerProfile | None = Field(
         None,
         description="세션에 연결된 고객 프로파일 (옵션)",
+    )
+
+    # 멀티턴 컨텍스트 필드 (mulititurn.md 옵션 A)
+    active_task: dict[str, Any] | None = Field(
+        None,
+        description="DirectRouting용 활성 태스크 정보 (reference_information.active_task)",
+    )
+    conversation_history: list[dict[str, Any]] | None = Field(
+        None,
+        description="최근 대화 이력 (reference_information.conversation_history)",
+    )
+    current_intent: str | None = Field(
+        None,
+        description="현재 활성 의도 (reference_information.current_intent)",
+    )
+    current_task_id: str | None = Field(
+        None,
+        description="현재 태스크 ID (reference_information.current_task_id)",
+    )
+    task_queue_status_detail: list[dict[str, Any]] | None = Field(
+        None,
+        description="태스크 큐 상세 상태 (reference_information.task_queue_status)",
+    )
+    turn_count: int | None = Field(
+        None,
+        description="대화 턴 수 (reference_information.turn_count)",
     )
 
 

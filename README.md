@@ -122,9 +122,11 @@ uv run pytest tests/ -v
 - ProfileService (v4.0 - Sync)
 - Repository 의존성 주입
 
-✅ **API Layer**
+-✅ **API Layer**
 - Unified Sessions API (`/api/v1/sessions`)
    - 세션 생성/조회/상태 업데이트/종료, Ping(생존 확인 및 TTL 연장)
+   - 멀티턴 컨텍스트 지원: PATCH state에서 reference_information 을 저장하고,
+     GET 세션 조회 응답에서 옵션 A 구조로 노출 (active_task, conversation_history, current_intent 등)
 - SOL 실시간 API 결과 저장 API (`/api/v1/contexts/turn-results`)
    - SOL RequestParam + DBSTrxResponse 전체를 턴 메타데이터로 저장 (텍스트 미저장)
 - Swagger UI (`/api/v1/docs`) 기반 자동 문서화 (필수/주요 필드 설명 포함)

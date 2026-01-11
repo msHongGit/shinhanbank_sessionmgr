@@ -185,6 +185,7 @@ GET /api/v1/sessions/gsess_20260108_abcd1234?agent_type=task&agent_id=transfer_a
 ```json
 {
   "global_session_key": "gsess_20260108_abcd1234",
+  "user_id": "user_001",
   "channel": {
     "eventType": "ICON_ENTRY",
     "eventChannel": "web"
@@ -202,18 +203,50 @@ GET /api/v1/sessions/gsess_20260108_abcd1234?agent_type=task&agent_id=transfer_a
     "preferences": {
       "marketing_opt_in": true
     }
-  }
+  },
+
+  "active_task": {
+    "task_id": "task-001",
+    "intent": "계좌조회",
+    "skill_tag": "balance_inquiry",
+    "skillset_metadata": {
+      "agent": "skillset-agent",
+      "skill": "계좌조회"
+    }
+  },
+  "conversation_history": [
+    {"role": "user", "content": "계좌 잔액 조회해주세요"},
+    {"role": "assistant", "content": "계좌번호를 알려주세요."}
+  ],
+  "current_intent": "계좌조회",
+  "current_task_id": "task-001",
+  "task_queue_status_detail": [
+    {
+      "task_id": "task-001",
+      "intent": "계좌조회",
+      "status": "Running",
+      "skill_tag": "balance_inquiry"
+    }
+  ],
+  "turn_count": 1
 }
 ```
 
 | 필드               | 타입   | 설명                                                                 |
 |--------------------|--------|----------------------------------------------------------------------|
-| global_session_key | string | 조회된 세션의 글로벌 세션 키                                        |
-| channel            | object | 세션 채널/이벤트 정보 (`eventType`, `eventChannel`)                  |
-| agent_session_key  | string | 업무 Agent 로컬 세션 키 (요청 시 `agent_type`+`agent_id` 가 있을 때만 세팅) |
-| session_state      | string | 세션 상태 (`start` / `talk` / `end`)                                |
-| is_first_call      | bool   | 세션이 `start` 상태인지 여부                                        |
-| task_queue_status  | string | 백엔드 Task Queue 상태 (`null` / `notnull`)                          |
-| subagent_status    | string | SubAgent 상태 (`undefined` / `continue` / `end`)                     |
-| last_event         | object | 마지막 이벤트 정보 (없으면 `null`)                                   |
-| customer_profile   | object | 고객 개인화 프로파일 스냅샷 (없으면 `null`)                          |
+| global_session_key        | string         | 조회된 세션의 글로벌 세션 키                                               |
+| user_id                   | string         | 세션 사용자 ID (세션 생성 시 전달한 userId)                               |
+| channel                   | object         | 세션 채널/이벤트 정보 (`eventType`, `eventChannel`)                         |
+| agent_session_key         | string         | 업무 Agent 로컬 세션 키 (요청 시 `agent_type`+`agent_id` 가 있을 때만 세팅) |
+| session_state             | string         | 세션 상태 (`start` / `talk` / `end`)                                       |
+| is_first_call             | bool           | 세션이 `start` 상태인지 여부                                               |
+| task_queue_status         | string         | 백엔드 Task Queue 상태 (`null` / `notnull`)                                 |
+| subagent_status           | string         | SubAgent 상태 (`undefined` / `continue` / `end`)                            |
+| last_event                | object         | 마지막 이벤트 정보 (없으면 `null`)                                          |
+| customer_profile          | object         | 고객 개인화 프로파일 스냅샷 (없으면 `null`)                                 |
+| active_task               | object	null | DirectRouting용 활성 태스크 정보 (`reference_information.active_task`)      |
+| conversation_history      | array	null  | 최근 대화 이력 (`reference_information.conversation_history`)               |
+| current_intent            | string	null | 현재 활성 의도 (`reference_information.current_intent`)                     |
+| current_task_id           | string	null | 현재 태스크 ID (`reference_information.current_task_id`)                    |
+| task_queue_status_detail  | array	null  | 태스크 큐 상세 상태 (`reference_information.task_queue_status`)            |
+| turn_count                | integer	null | 대화 턴 수 (`reference_information.turn_count`)                             |
