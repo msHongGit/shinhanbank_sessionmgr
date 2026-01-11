@@ -26,8 +26,8 @@
 ├─────────────────────────────────────────────────────────────┤
 │  Service Layer                                               │
 │    ├─ SessionService  : 세션/Agent 세션 매핑 비즈니스 로직   │
-│    ├─ ContextService  : 컨텍스트/턴 메타데이터 관리          │
-│    └─ ProfileService  : 고객 프로파일 조회/연결              │
+│    ├─ ContextService  : (향후) 컨텍스트/턴 메타데이터 관리    │
+│    └─ ProfileService  : (향후) 고객 프로파일 조회/연결        │
 ├─────────────────────────────────────────────────────────────┤
 │  Repository Layer                                            │
 │    ├─ RedisSessionRepository   : Redis 기반 세션/매핑 저장소  │
@@ -61,7 +61,6 @@ app/
 tests/
    test_sessions_api.py
    test_context_api.py
-   test_agent_sessions_api.py
    test_integration.py
 docs/
    Session_Manager_API_Sprint3.md  # Sprint 3 API 명세
@@ -91,7 +90,8 @@ http://localhost:5000/api/v1/docs
 # 전체 테스트
 uv run pytest tests/ -v
 ```
-> 주요 테스트는 `tests/test_sessions_api.py`, `tests/test_context_api.py`, `tests/test_agent_sessions_api.py`, `tests/test_integration.py` 로 구성되어 있습니다.
+> 주요 테스트는 `tests/test_sessions_api.py`, `tests/test_context_api.py`, `tests/test_integration.py` 로 구성되어 있으며,
+> `tests/test_agent_sessions_api.py`는 더 이상 사용하지 않는 Agent Sessions API에 대한 deprecated stub 파일입니다.
 
 
 ## 🔑 인증/저장소 정책 (Sprint 3 기준)
@@ -117,12 +117,12 @@ uv run pytest tests/ -v
 - DI를 통해 환경별 저장소 구현체 교체 가능
 
 ✅ **Service Layer**
-- SessionService (v4.0 - Sync)
-- ContextService (v4.0 - Sync)
-- ProfileService (v4.0 - Sync)
+- SessionService (v4.0 - Sync, 현재 메인 서비스)
+- ContextService (v4.0 - Sync, MariaDB 연동용 확장 서비스 - 현재 미사용)
+- ProfileService (v4.0 - Sync, 향후 프로파일 API 연동용 - 현재 미사용)
 - Repository 의존성 주입
 
--✅ **API Layer**
+✅ **API Layer**
 - Unified Sessions API (`/api/v1/sessions`)
    - 세션 생성/조회/상태 업데이트/종료, Ping(생존 확인 및 TTL 연장)
    - 멀티턴 컨텍스트 지원: PATCH state에서 reference_information 을 저장하고,
@@ -136,10 +136,9 @@ uv run pytest tests/ -v
 - Sessions/Contexts/Agent 세션 매핑 시나리오 검증
 - Redis 기반 저장소를 사용하는 통합 테스트 포함
 
-✅ **시연 준비**
-- API 정의서 (docs/DEMO_API_SPEC.md)
-- 시나리오 플로우 (docs/DEMO_SCENARIO.md)
-- SubAgent 상태 전이 로직
+✅ **시연 준비 (예시)**
+- API 정의서/시나리오 문서는 docs/ 디렉터리 및 local_test/ 디렉터리 내 문서를 참고
+- SubAgent 상태 전이/멀티턴 컨텍스트 플로우는 `docs/Session_Manager_API_Sprint3.md`, `docs/mulititurn.md` 등을 기준으로 정리
 
 ## 🎯 향후 확장 (Sprint 4+ 아이디어)
 

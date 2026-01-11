@@ -2,11 +2,6 @@
 Session Manager - Schemas Package (v3.0)
 """
 
-from app.schemas.agent_sessions import (
-    AgentSessionGetResponse,
-    AgentSessionRegisterRequest,
-    AgentSessionRegisterResponse,
-)
 from app.schemas.common import (
     AgentType,
     ConversationHistory,
@@ -37,10 +32,6 @@ from app.schemas.common import (
 from app.schemas.contexts import SolApiResultRequest, SolDBSTransactionPayload, SolDBSTransactionResult, TurnResponse
 
 __all__ = [
-    # Agent Sessions
-    "AgentSessionGetResponse",
-    "AgentSessionRegisterRequest",
-    "AgentSessionRegisterResponse",
     # Common - Enums
     "AgentType",
     "FallbackReason",

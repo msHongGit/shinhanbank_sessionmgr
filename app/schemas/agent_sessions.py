@@ -1,41 +1,12 @@
+"""Deprecated Agent Session Schemas.
+
+Unified Sessions API 의 세션 상태 PATCH 로 Agent 세션 매핑을
+처리하도록 변경되면서, 이 스키마들은 더 이상 사용되지 않습니다.
+
+향후 DB 기반 `agent_sessions` 테이블을 다시 노출해야 할 때
+필요시 재도입하기 위한 빈 스텁 모듈로 남겨둡니다.
 """
-Session Manager - Agent Session Schemas
-에이전트 세션 (구 Local Session) 스키마
-"""
 
-from datetime import datetime
-
-from pydantic import BaseModel, ConfigDict, Field
-
-from app.schemas.common import AgentType
-
-
-class AgentSessionRegisterRequest(BaseModel):
-    """에이전트 세션 등록 요청 (MA → SM) - 업무 Agent Start 후"""
-
-    global_session_key: str = Field(..., description="Global 세션 키")
-    agent_session_key: str = Field(..., description="업무 Agent가 발급한 에이전트 세션 키")
-    agent_id: str = Field(..., description="업무 Agent ID")
-    agent_type: AgentType = Field(AgentType.TASK, description="Agent 유형")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "global_session_key": "gsess_20260107_user_001",
-                "agent_session_key": "asess_agent_transfer_001",
-                "agent_id": "agent-transfer",
-                "agent_type": "task",
-            }
-        }
-    )
-
-
-class AgentSessionRegisterResponse(BaseModel):
-    """에이전트 세션 등록 응답"""
-
-    status: str = Field(..., description="처리 상태")
-    mapping_id: str = Field(..., description="매핑 ID")
-    expires_at: datetime = Field(..., description="매핑 만료 시각")
 
 
 class AgentSessionGetResponse(BaseModel):

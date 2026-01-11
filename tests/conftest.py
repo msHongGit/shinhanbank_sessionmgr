@@ -29,7 +29,6 @@ from app.services.session_service import SessionService
 def client():
     """FastAPI TestClient using real Redis for sessions/contexts and Mock profile data."""
 
-    from app.api.v1.agent_sessions import get_session_service as get_agent_session_service
     from app.api.v1.sessions import get_session_service
 
     profile_repo = MockProfileRepository()
@@ -40,7 +39,6 @@ def client():
         return SessionService(profile_repo=profile_repo)
 
     app.dependency_overrides[get_session_service] = override_session_service
-    app.dependency_overrides[get_agent_session_service] = override_session_service
 
     client = TestClient(app)
     yield client
