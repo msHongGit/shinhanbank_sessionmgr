@@ -16,3 +16,8 @@ htmlcov/
 *.swp
 *.swo
 *~
+
+# Local-only folders (do not commit)
+/local_test/
+/ma_session/
+/agw_workflow/

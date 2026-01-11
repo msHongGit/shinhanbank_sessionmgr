@@ -2,19 +2,10 @@
 
 > 대상: Session Manager (FastAPI + Redis + MariaDB)  \
 > 환경: 인터넷이 차단된 온프레미스 K8s / VM 환경, USB 기반 아티팩트 전송  \
-> 참고: `ma_session/ma_migration.md` 의 마스터 에이전트 가이드를 Session Manager에 맞게 단순화한 버전
 
 ---
 
 ## 1. 개요
-
-Session Manager는 다음을 관리하는 경량 API 서비스입니다.
-
-- 세션 상태 (global_session_key, session_state, subagent_status 등)
-- 컨텍스트 메타데이터 (intent, slots, entities, summary 등)
-- 턴 메타데이터 (외부 API 호출 결과, 이벤트 타입 등 – **텍스트 제외**)
-- Agent 세션 매핑 (global_session_key ↔ agent_session_key)
-
 온프레미스 에어갭 환경으로의 마이그레이션은 크게 네 단계로 나눌 수 있습니다.
 
 1. 외부 환경에서 **필요 이미지/패키지/소스 코드 추출** (USB 아티팩트 준비)
@@ -276,18 +267,20 @@ COPY app/ ./app/
 
 ## 6. 환경 변수 및 시크릿 관리
 
-Session Manager는 DB/Redis/포트 등의 설정을 **환경 변수**로 받는 패턴을 사용해야 합니다. (실제 `config.py` 구현을 따르되, 여기서는 일반적인 예만 듭니다.)
+Session Manager는 DB/Redis/포트 등의 설정을 **환경 변수**로 받는 패턴을 사용해야 합니다. (실제 `config.py` 구현을 따릅니다.)
 
 예시 환경 변수 (운영 예시, 실제 값은 모두 시크릿으로 관리):
 
 ```bash
 export SESSION_MANAGER_PORT=5000
 
-# Redis
-export REDIS_HOST=redis.internal
-export REDIS_PORT=6379
-export REDIS_DB=0
-export REDIS_PASSWORD="${REDIS_PASSWORD}"  # 시크릿
+# Redis (Session Manager 앱에서는 REDIS_URL 하나로 관리)
+# 온프렘 예시: 비밀번호가 없는 Redis
+export REDIS_URL="redis://redis-stack.sas-portal-dev:6379/0"
+
+# 비밀번호가 있는 Redis 의 예시는 아래와 같이 형태만 참고하고,
+# 실제 패스워드는 K8s Secret/OS 시크릿 등에 따로 보관해야 합니다.
+# export REDIS_URL="redis://user:${REDIS_PASSWORD}@redis.internal:6379/0"
 
 # MariaDB
 export DB_HOST=mariadb.internal
@@ -296,12 +289,6 @@ export DB_USER=session_manager
 export DB_PASSWORD="${DB_PASSWORD}"       # 시크릿
 export DB_NAME=session_manager
 ```
-
-> **중요**: 실제 비밀번호나 API 키는 문서/스크립트에 하드코딩하지 말고, 
-> - K8s Secret, 
-> - GitLab CI/CD Variables, 
-> - OS 수준 시크릿 저장 방식 
-> 등을 사용하십시오.
 
 Kubernetes에서 배포할 경우:
 

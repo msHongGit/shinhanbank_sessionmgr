@@ -40,6 +40,16 @@ SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production"
 ALLOWED_ORIGINS: list[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 # === Redis Configuration ===
+#
+# 기본값은 Azure Redis 인스턴스를 가리키며,
+# 환경별(예: 온프렘)로는 반드시 REDIS_URL 환경 변수로 오버라이드해서 사용합니다.
+#
+# 예) Azure Redis (비밀번호는 시크릿에서 REDIS_PASSWORD 로 주입)
+#   export REDIS_URL="rediss://default:${REDIS_PASSWORD}@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0"
+#
+# 예) 온프렘 Redis (요청하신 온프렘 환경 정보 기준)
+#   export REDIS_URL="redis://redis-stack.sas-portal-dev:6379/0"
+
 REDIS_URL: str = os.getenv(
     "REDIS_URL", "rediss://default:40eMR6v24M6rghbwNjZeAZJxZIABPERQHAzCaFCHkJY=@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0"
 )
