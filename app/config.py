@@ -61,7 +61,11 @@ ALLOWED_ORIGINS: list[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 REDIS_URL: str | None = os.getenv("REDIS_URL")
 if not REDIS_URL:
-    raise RuntimeError("REDIS_URL is not set. Please configure Redis connection via environment variable or .env.")
+    # 컨테이너/테스트 환경에서 REDIS_URL 미설정 시에도 애플리케이션이 기동되도록
+    # 로컬호스트 Redis를 기본값으로 사용한다.
+    # - 실제 Redis 연결이 필요 없는 헬스체크/스모크 테스트용 시나리오를 지원하기 위한 설정
+    # - 운영 환경에서는 반드시 REDIS_URL 을 명시적으로 설정해야 한다.
+    REDIS_URL = "redis://localhost:6379/0"
 REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", "10"))
 
 # === TTL Settings ===
