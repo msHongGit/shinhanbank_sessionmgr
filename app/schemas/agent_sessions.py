@@ -7,6 +7,11 @@ Unified Sessions API 의 세션 상태 PATCH 로 Agent 세션 매핑을
 필요시 재도입하기 위한 빈 스텁 모듈로 남겨둡니다.
 """
 
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+from app.schemas.common import AgentType
 
 
 class AgentSessionGetResponse(BaseModel):

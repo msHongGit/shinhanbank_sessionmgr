@@ -1,3 +1,56 @@
+class TestMultiTurnConversationHistory:
+    """
+    멀티턴 대화 이력(reference_information.conversation_history) 저장/조회 통합 테스트
+    """
+
+    def test_multiturn_conversation_history_patch_and_get(self, client, agw_headers, ma_headers):
+        """
+        PATCH로 conversation_history를 저장하고, GET에서 최상위로 노출되는지 검증
+        """
+        # 1. 세션 생성
+        create_req = {
+            "userId": "user_multiturn_001",
+        }
+        print("[TEST] POST /api/v1/sessions 요청:", create_req)
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        print("[TEST] POST 응답:", create_resp.status_code, create_resp.json())
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. PATCH로 멀티턴 대화 이력 포함 업데이트
+        conversation_history = [{"role": "user", "content": "잔액 조회"}, {"role": "assistant", "content": "계좌번호를 알려주세요"}]
+        patch_req = {
+            "global_session_key": global_session_key,
+            "turn_id": "turn_001",
+            "session_state": "talk",
+            "state_patch": {"reference_information": {"conversation_history": conversation_history, "current_intent": "계좌조회"}},
+        }
+        print(f"[TEST] PATCH /api/v1/sessions/{global_session_key}/state 요청:", patch_req)
+        patch_resp = client.patch(
+            f"/api/v1/sessions/{global_session_key}/state",
+            json=patch_req,
+            headers=ma_headers,
+        )
+        print("[TEST] PATCH 응답:", patch_resp.status_code, patch_resp.json())
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["status"] == "success"
+
+        # 3. GET으로 세션 조회
+        print(f"[TEST] GET /api/v1/sessions/{global_session_key} 요청")
+        get_resp = client.get(
+            f"/api/v1/sessions/{global_session_key}",
+            headers=ma_headers,
+        )
+        print("[TEST] GET 응답:", get_resp.status_code, get_resp.json())
+        assert get_resp.status_code == 200
+        data = get_resp.json()
+
+        # 4. conversation_history, current_intent가 최상위에 노출되는지 확인
+        assert "conversation_history" in data
+        assert data["conversation_history"] == conversation_history
+        assert data["current_intent"] == "계좌조회"
+
+
 """
 Session Manager - Sessions API Tests (통합 API)
 모든 호출자(AGW, MA, CLIENT 등)가 사용하는 통합 API 테스트
@@ -9,13 +62,17 @@ class TestHealthCheck:
 
     def test_health_check(self, client):
         """헬스체크"""
+        print("[TEST] GET / (health check)")
         response = client.get("/")
+        print("[TEST] GET / 응답:", response.status_code, response.json())
         assert response.status_code == 200
         assert response.json()["status"] == "healthy"
 
     def test_readiness_check(self, client):
         """레디니스 체크"""
+        print("[TEST] GET / (readiness check)")
         response = client.get("/")
+        print("[TEST] GET / 응답:", response.status_code, response.json())
         assert response.status_code == 200
 
 
@@ -27,8 +84,9 @@ class TestSessionCreate:
         request_data = {
             "userId": "user_vip_001",  # MockProfileRepository에 존재하는 사용자
         }
+        print("[TEST] POST /api/v1/sessions 요청:", request_data)
         response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
-
+        print("[TEST] POST 응답:", response.status_code, response.json())
         assert response.status_code == 201
         data = response.json()
         assert data["global_session_key"].startswith("gsess_")
@@ -40,8 +98,9 @@ class TestSessionCreate:
         request_data = {
             "userId": "user_002",
         }
+        print("[TEST] POST /api/v1/sessions 요청:", request_data)
         response = client.post("/api/v1/sessions", json=request_data, headers=ma_headers)
-
+        print("[TEST] POST 응답:", response.status_code, response.json())
         assert response.status_code == 201
         data = response.json()
         assert data["global_session_key"].startswith("gsess_")
@@ -52,8 +111,9 @@ class TestSessionCreate:
         request_data = {
             "userId": "user_no_profile",  # MockProfileRepository에 없는 사용자
         }
+        print("[TEST] POST /api/v1/sessions 요청:", request_data)
         response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
-
+        print("[TEST] POST 응답:", response.status_code, response.json())
         assert response.status_code == 201
         data = response.json()
         assert data["global_session_key"].startswith("gsess_")
@@ -73,16 +133,20 @@ class TestSessionResolve:
                 "eventChannel": "web",
             },
         }
+        print("[TEST] POST /api/v1/sessions 요청:", create_req)
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        print("[TEST] POST 응답:", create_resp.status_code, create_resp.json())
         assert create_resp.status_code == 201
         global_session_key = create_resp.json()["global_session_key"]
 
         # 세션 조회
+        print(f"[TEST] GET /api/v1/sessions/{global_session_key} 요청 (channel=web)")
         response = client.get(
             f"/api/v1/sessions/{global_session_key}",
             params={"channel": "web"},
             headers=ma_headers,
         )
+        print("[TEST] GET 응답:", response.status_code, response.json())
 
         assert response.status_code == 200
         data = response.json()
@@ -96,12 +160,13 @@ class TestSessionResolve:
 
     def test_resolve_session_not_found(self, client, ma_headers):
         """세션 없음"""
+        print("[TEST] GET /api/v1/sessions/nonexistent_key 요청 (channel=web)")
         response = client.get(
             "/api/v1/sessions/nonexistent_key",
             params={"channel": "web"},
             headers=ma_headers,
         )
-
+        print("[TEST] GET 응답:", response.status_code, response.json())
         assert response.status_code == 404
 
 
@@ -114,7 +179,9 @@ class TestSessionStatePatch:
         create_req = {
             "userId": "user_patch_001",
         }
+        print("[TEST] POST /api/v1/sessions 요청:", create_req)
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        print("[TEST] POST 응답:", create_resp.status_code, create_resp.json())
         assert create_resp.status_code == 201
         session = create_resp.json()
 
@@ -130,23 +197,25 @@ class TestSessionStatePatch:
                 "last_agent_type": "task",
             },
         }
+        print(f"[TEST] PATCH /api/v1/sessions/{session['global_session_key']}/state 요청:", patch_req)
         response = client.patch(
             f"/api/v1/sessions/{session['global_session_key']}/state",
             json=patch_req,
             headers=ma_headers,
         )
-
+        print("[TEST] PATCH 응답:", response.status_code, response.json())
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"
 
         # 업데이트 후 세션 조회 시 agent_session_key가 매핑되어야 함
+        print(f"[TEST] GET /api/v1/sessions/{session['global_session_key']} 요청 (agent_type=task, agent_id=transfer_agent)")
         resolve_resp = client.get(
             f"/api/v1/sessions/{session['global_session_key']}",
             params={"channel": "web", "agent_type": "task", "agent_id": "transfer_agent"},
             headers=ma_headers,
         )
-
+        print("[TEST] GET 응답:", resolve_resp.status_code, resolve_resp.json())
         assert resolve_resp.status_code == 200
         resolved = resolve_resp.json()
         assert resolved["agent_session_key"] == "asess_transfer_001"
@@ -161,11 +230,14 @@ class TestSessionClose:
         create_req = {
             "userId": "user_close_001",
         }
+        print("[TEST] POST /api/v1/sessions 요청:", create_req)
         create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        print("[TEST] POST 응답:", create_resp.status_code, create_resp.json())
         assert create_resp.status_code == 201
         session = create_resp.json()
 
         # 세션 종료
+        print(f"[TEST] DELETE /api/v1/sessions/{session['global_session_key']} 요청 (close_reason=test_completed)")
         response = client.delete(
             f"/api/v1/sessions/{session['global_session_key']}",
             params={
@@ -173,7 +245,7 @@ class TestSessionClose:
             },
             headers=ma_headers,
         )
-
+        print("[TEST] DELETE 응답:", response.status_code, response.json())
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"

@@ -245,6 +245,12 @@ class SessionResolveResponse(BaseModel):
         description="대화 턴 수 (reference_information.turn_count)",
     )
 
+    # reference_information 전체 반환 (명세 외 필드 포함)
+    reference_information: dict[str, Any] | None = Field(
+        None,
+        description="reference_information 전체 (명세 외 필드 포함)",
+    )
+
 
 # ============ Session State Update (from ma.py) ============
 
