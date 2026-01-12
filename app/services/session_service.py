@@ -68,6 +68,19 @@ class SessionService:
         # Profile Repository는 주입된 값을 그대로 사용 (없으면 None)
         self.profile_repo = profile_repo
 
+    # -------------------------------------------------------------------------
+    # 내부 유틸리티
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _serialize_reference_information(ref_info: dict[str, Any]) -> str:
+        """reference_information 직렬화 헬퍼.
+
+        - JSON 객체 키를 정렬(sort_keys=True)하여 일관된 저장 형태를 유지한다.
+        - 리스트(conversation_history 등)의 순서는 그대로 유지된다.
+        """
+        return json.dumps(ref_info, sort_keys=True, ensure_ascii=False)
+
     def _generate_id(self, prefix: str) -> str:
         """ID 생성"""
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -335,7 +348,9 @@ class SessionService:
             if patch.action_owner:
                 updates["action_owner"] = patch.action_owner
             if patch.reference_information:
-                updates["reference_information"] = json.dumps(patch.reference_information)
+                # reference_information은 JSON으로 직렬화할 때 키를 정렬하여
+                # Redis/MariaDB에 일관된 형태로 저장한다.
+                updates["reference_information"] = self._serialize_reference_information(patch.reference_information)
             if patch.cushion_message:
                 updates["cushion_message"] = patch.cushion_message
             if patch.session_attributes:

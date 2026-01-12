@@ -130,6 +130,73 @@ class TestMultiTurnConversationHistory:
         dialog_context = data["dialog_context"]
         assert dialog_context["turnId"] == "turn_002"
 
+    def test_reference_information_custom_keys_roundtrip(self, client, agw_headers, ma_headers):
+        """
+        reference_information에 새로운 키/중첩 구조가 들어갔을 때,
+        Redis에 그대로 저장되었다가 GET 응답의 reference_information에서 그대로 조회되는지 검증
+        """
+        # 1. 세션 생성
+        create_req = {
+            "userId": "user_multiturn_custom_refinfo",
+        }
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. PATCH로 reference_information에 커스텀 키 포함하여 저장
+        patch_req = {
+            "global_session_key": global_session_key,
+            "turn_id": "turn_custom_001",
+            "session_state": "talk",
+            "state_patch": {
+                "reference_information": {
+                    "conversation_history": [
+                        {"role": "user", "content": "커스텀 키 테스트 1"},
+                        {"role": "assistant", "content": "커스텀 키 테스트 응답"},
+                    ],
+                    "current_intent": "custom_intent",
+                    "custom_meta": {
+                        "foo": "bar",
+                        "numbers": [1, 2, 3],
+                    },
+                    "another_list": [
+                        {"key": "v1"},
+                        {"key": "v2"},
+                    ],
+                },
+            },
+        }
+        patch_resp = client.patch(
+            f"/api/v1/sessions/{global_session_key}/state",
+            json=patch_req,
+            headers=ma_headers,
+        )
+        assert patch_resp.status_code == 200
+
+        # 3. GET으로 세션 조회
+        get_resp = client.get(
+            f"/api/v1/sessions/{global_session_key}",
+            headers=ma_headers,
+        )
+        assert get_resp.status_code == 200
+        data = get_resp.json()
+
+        # 최상위 멀티턴 필드들은 여전히 동작해야 함
+        assert data["current_intent"] == "custom_intent"
+        assert isinstance(data["conversation_history"], list)
+        assert len(data["conversation_history"]) == 2
+
+        # reference_information 전체에서 커스텀 키/값이 그대로 조회되는지 확인
+        ref = data.get("reference_information") or {}
+        assert "custom_meta" in ref
+        assert ref["custom_meta"]["foo"] == "bar"
+        assert ref["custom_meta"]["numbers"] == [1, 2, 3]
+
+        assert "another_list" in ref
+        assert isinstance(ref["another_list"], list)
+        assert ref["another_list"][0]["key"] == "v1"
+        assert ref["another_list"][1]["key"] == "v2"
+
 
 """
 Session Manager - Sessions API Tests (통합 API)
