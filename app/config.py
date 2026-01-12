@@ -8,7 +8,12 @@ from pathlib import Path
 
 
 def load_env_file():
-    """Load .env file for local development with variable expansion."""
+    """Load .env file for local development with variable expansion.
+
+    - 로컬 개발 환경에서만 사용하는 것을 권장한다.
+    - 운영/컨테이너 환경에서는 환경변수/시크릿으로 설정을 주입하고,
+      .env 자동 로드는 비활성화한다.
+    """
     env_file = Path(__file__).parent.parent / ".env"
     if env_file.exists():
         with open(env_file) as f:
@@ -28,7 +33,10 @@ def load_env_file():
                     os.environ.setdefault(key, value)
 
 
-load_env_file()
+# 로컬 개발에서는 기본값 true, 운영/컨테이너에서는 SHINHAN_SM_LOAD_ENV=false 권장
+SHINHAN_SM_LOAD_ENV: bool = os.getenv("SHINHAN_SM_LOAD_ENV", "true").lower() == "true"
+if SHINHAN_SM_LOAD_ENV:
+    load_env_file()
 
 # === Application Settings ===
 APP_ENV: str = os.getenv("APP_ENV", "dev")
@@ -41,18 +49,19 @@ ALLOWED_ORIGINS: list[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 # === Redis Configuration ===
 #
-# 기본값은 Azure Redis 인스턴스를 가리키며,
-# 환경별(예: 온프렘)로는 반드시 REDIS_URL 환경 변수로 오버라이드해서 사용합니다.
+# 모든 환경에서 REDIS_URL 설정을 **필수**로 요구한다.
+# - 운영(on-prem Redis), 개발(Azure Redis) 모두 환경변수 또는 .env 로 주입
+# - 코드 내부에는 실제 접속 정보(호스트/비밀번호)를 두지 않는다.
 #
-# 예) Azure Redis (비밀번호는 시크릿에서 REDIS_PASSWORD 로 주입)
-#   export REDIS_URL="rediss://default:${REDIS_PASSWORD}@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0"
+# 예) 개발(Azure Redis, 비밀번호는 시크릿에서 REDIS_PASSWORD 로 주입)
+#   export REDIS_URL="rediss://default:${REDIS_PASSWORD}@<azure-redis-host>:10000/0"
 #
-# 예) 온프렘 Redis (요청하신 온프렘 환경 정보 기준)
+# 예) 운영/온프렘 Redis
 #   export REDIS_URL="redis://redis-stack.sas-portal-dev:6379/0"
 
-REDIS_URL: str = os.getenv(
-    "REDIS_URL", "rediss://default:40eMR6v24M6rghbwNjZeAZJxZIABPERQHAzCaFCHkJY=@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0"
-)
+REDIS_URL: str | None = os.getenv("REDIS_URL")
+if not REDIS_URL:
+    raise RuntimeError("REDIS_URL is not set. Please configure Redis connection via environment variable or .env.")
 REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", "10"))
 
 # === TTL Settings ===
@@ -61,10 +70,8 @@ SESSION_CACHE_TTL: int = int(os.getenv("SESSION_CACHE_TTL", "600"))
 SESSION_MAP_TTL: int = int(os.getenv("SESSION_MAP_TTL", "600"))
 
 # === PostgreSQL (향후 사용) ===
-DATABASE_URL: str = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/session_manager",
-)
+# 현재 Sprint 3에서는 사용하지 않으며, 향후 RDB 연동 시 활용 예정이다.
+DATABASE_URL: str | None = os.getenv("DATABASE_URL")
 DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "5"))
 DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
 DB_ECHO: bool = os.getenv("DB_ECHO", "false").lower() == "true"
@@ -76,12 +83,12 @@ CONVERSATION_ID_PREFIX: str = os.getenv("CONVERSATION_ID_PREFIX", "conv")
 CONTEXT_ID_PREFIX: str = os.getenv("CONTEXT_ID_PREFIX", "ctx")
 
 # === API Keys (호출자별) ===
-AGW_API_KEY: str = os.getenv("AGW_API_KEY", "agw-api-key")
-MA_API_KEY: str = os.getenv("MA_API_KEY", "ma-api-key")
-PORTAL_API_KEY: str = os.getenv("PORTAL_API_KEY", "portal-api-key")
-VDB_API_KEY: str = os.getenv("VDB_API_KEY", "vdb-api-key")
-CLIENT_API_KEY: str = os.getenv("CLIENT_API_KEY", "client-api-key")
-EXTERNAL_API_KEY: str = os.getenv("EXTERNAL_API_KEY", "external-api-key")  # Sprint 3
+AGW_API_KEY: str = os.getenv("AGW_API_KEY", "")
+MA_API_KEY: str = os.getenv("MA_API_KEY", "")
+PORTAL_API_KEY: str = os.getenv("PORTAL_API_KEY", "")
+VDB_API_KEY: str = os.getenv("VDB_API_KEY", "")
+CLIENT_API_KEY: str = os.getenv("CLIENT_API_KEY", "")
+EXTERNAL_API_KEY: str = os.getenv("EXTERNAL_API_KEY", "")  # Sprint 3
 
 # === Auth (Sprint 2: 기본 비활성화, 운영에서만 활성화 권장) ===
 ENABLE_API_KEY_AUTH: bool = os.getenv("ENABLE_API_KEY_AUTH", "false").lower() == "true"

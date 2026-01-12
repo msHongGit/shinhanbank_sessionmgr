@@ -1,0 +1,30 @@
+# Docker build context ignore file for Session Manager
+
+# Python cache / virtualenv
+__pycache__/
+*.py[cod]
+.venv
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Local-only environment & logs
+.env
+*.log
+
+# Local-only test/docs/examples (이미지에 포함 불필요)
+local_test/
+ma_session/
+agw_workflow/
+
+# Git metadata
+.git
+.gitignore
+
