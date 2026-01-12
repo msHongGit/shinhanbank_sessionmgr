@@ -50,6 +50,86 @@ class TestMultiTurnConversationHistory:
         assert data["conversation_history"] == conversation_history
         assert data["current_intent"] == "계좌조회"
 
+        # 5. turn_ids 및 dialog_context가 멀티턴 명세에 맞게 노출되는지 확인
+        assert "turn_ids" in data
+        assert data["turn_ids"] == ["turn_001"]
+
+        assert "dialog_context" in data
+        dialog_context = data["dialog_context"]
+
+        # DialogContext 기본 필드 검증
+        assert dialog_context["turnId"] == "turn_001"
+        assert dialog_context["currentIntent"] == "계좌조회"
+        assert isinstance(dialog_context["history"], list)
+        assert len(dialog_context["history"]) == len(conversation_history)
+
+        # history 내부 DialogTurn 구조 검증 (role, content 유지)
+        for idx, turn in enumerate(conversation_history):
+            dc_turn = dialog_context["history"][idx]
+            assert dc_turn["role"] == turn["role"]
+            assert dc_turn["content"] == turn["content"]
+
+    def test_multiturn_turn_ids_accumulate(self, client, agw_headers, ma_headers):
+        """
+        동일 세션에 대해 여러 번 PATCH 호출 시 turn_ids가 누적되고,
+        dialog_context.turnId가 마지막 턴 ID로 설정되는지 검증
+        """
+        # 1. 세션 생성
+        create_req = {
+            "userId": "user_multiturn_002",
+        }
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. 첫 번째 PATCH
+        patch_req_1 = {
+            "global_session_key": global_session_key,
+            "turn_id": "turn_001",
+            "session_state": "talk",
+            "state_patch": {
+                "reference_information": {
+                    "conversation_history": [{"role": "user", "content": "첫 번째 턴"}],
+                    "current_intent": "첫번째의도",
+                },
+            },
+        }
+        resp_1 = client.patch(
+            f"/api/v1/sessions/{global_session_key}/state",
+            json=patch_req_1,
+            headers=ma_headers,
+        )
+        assert resp_1.status_code == 200
+
+        # 3. 두 번째 PATCH (turn_id만 변경, state_patch는 생략 가능)
+        patch_req_2 = {
+            "global_session_key": global_session_key,
+            "turn_id": "turn_002",
+            "session_state": "talk",
+        }
+        resp_2 = client.patch(
+            f"/api/v1/sessions/{global_session_key}/state",
+            json=patch_req_2,
+            headers=ma_headers,
+        )
+        assert resp_2.status_code == 200
+
+        # 4. GET으로 세션 조회
+        get_resp = client.get(
+            f"/api/v1/sessions/{global_session_key}",
+            headers=ma_headers,
+        )
+        assert get_resp.status_code == 200
+        data = get_resp.json()
+
+        # turn_ids가 순서대로 누적되었는지 확인
+        assert data["turn_ids"] == ["turn_001", "turn_002"]
+
+        # dialog_context.turnId가 마지막 턴 ID를 가리키는지 확인
+        assert "dialog_context" in data
+        dialog_context = data["dialog_context"]
+        assert dialog_context["turnId"] == "turn_002"
+
 
 """
 Session Manager - Sessions API Tests (통합 API)

@@ -129,6 +129,62 @@ class ErrorResponse(BaseModel):
     detail: str | None = Field(None, description="상세 정보")
 
 
+class DialogTurn(BaseModel):
+    """Sub-Agent 표준 스펙과 호환되는 대화 턴 (DialogTurn).
+
+    Session Manager는 reference_information.conversation_history 를 기반으로
+    이 구조를 구성하여 Master Agent/Agent Gateway에 전달할 수 있다.
+    """
+
+    role: str = Field(..., description="user | assistant | system")
+    content: str = Field(..., description="메시지 내용")
+    timestamp: datetime | None = Field(
+        None,
+        description="메시지 시각 (옵션; 문자열인 경우 ISO8601로 파싱 시도)",
+    )
+    agent_id: str | None = Field(
+        None,
+        alias="agentId",
+        description="응답한 에이전트 ID (옵션)",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DialogContext(BaseModel):
+    """Sub-Agent 표준 스펙과 호환되는 DialogContext.
+
+    - turnId / turnCount / history / currentIntent / entities 구조를 따른다.
+    - Session Manager GET 응답에서 옵션으로 제공하여, Agent Gateway가 그대로 사용 가능하도록 한다.
+    """
+
+    turn_id: str | None = Field(
+        None,
+        alias="turnId",
+        description="현재 또는 마지막 턴 ID (옵션)",
+    )
+    turn_count: int | None = Field(
+        None,
+        alias="turnCount",
+        description="현재 대화 턴 수 (옵션)",
+    )
+    history: list[DialogTurn] = Field(
+        default_factory=list,
+        description="대화 이력 (DialogTurn 목록)",
+    )
+    current_intent: str | None = Field(
+        None,
+        alias="currentIntent",
+        description="현재 파악된 의도 (옵션)",
+    )
+    entities: dict[str, Any] | None = Field(
+        None,
+        description="추출된 엔티티 맵 (옵션)",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ChannelInfo(BaseModel):
     """세션 채널/이벤트 정보 (EventType, EventChannel).
 
@@ -249,6 +305,18 @@ class SessionResolveResponse(BaseModel):
     reference_information: dict[str, Any] | None = Field(
         None,
         description="reference_information 전체 (명세 외 필드 포함)",
+    )
+
+    # PATCH 시 전달된 turn_id들을 누적 저장한 목록 (선택)
+    turn_ids: list[str] | None = Field(
+        None,
+        description="해당 세션에서 PATCH로 기록된 turn_id 목록 (최신 순 또는 호출 순)",
+    )
+
+    # Sub-Agent 표준 스펙과 호환되는 DialogContext 뷰 (옵션)
+    dialog_context: DialogContext | None = Field(
+        None,
+        description="Sub-Agent DialogContext와 호환되는 대화 컨텍스트 뷰 (옵션)",
     )
 
 

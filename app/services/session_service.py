@@ -30,6 +30,8 @@ from app.schemas.common import (
     AgentType,
     ChannelInfo,
     CustomerProfile,
+    DialogContext,
+    DialogTurn,
     LastEvent,
     SessionCloseRequest,
     SessionCloseResponse,
@@ -225,6 +227,66 @@ class SessionService:
                 event_channel=stored_channel or "",
             )
 
+        # 누적 turn_id 목록 파싱
+        turn_ids: list[str] | None = None
+        raw_turn_ids = session.get("turn_ids")
+        if isinstance(raw_turn_ids, list):
+            turn_ids = [str(t) for t in raw_turn_ids]
+        elif isinstance(raw_turn_ids, str):
+            try:
+                parsed_turn_ids = json.loads(raw_turn_ids)
+                if isinstance(parsed_turn_ids, list):
+                    turn_ids = [str(t) for t in parsed_turn_ids]
+            except json.JSONDecodeError:
+                turn_ids = None
+
+        # Sub-Agent 표준 스펙과 호환되는 DialogContext 구성
+        dialog_context: DialogContext | None = None
+        if conversation_history or current_intent or turn_count or turn_ids:
+            history_items: list[DialogTurn] = []
+            if isinstance(conversation_history, list):
+                for item in conversation_history:
+                    if not isinstance(item, dict):
+                        continue
+
+                    role = (item.get("role") or "user") if isinstance(item.get("role"), str) else "user"
+                    content = (item.get("content") or "") if isinstance(item.get("content"), str) else ""
+
+                    # timestamp는 문자열일 경우 ISO8601 파싱 시도, 없거나 실패하면 None
+                    ts_value = item.get("timestamp")
+                    ts: datetime | None = None
+                    if isinstance(ts_value, str):
+                        try:
+                            ts = datetime.fromisoformat(ts_value)
+                        except ValueError:
+                            ts = None
+
+                    history_items.append(
+                        DialogTurn(
+                            role=role,
+                            content=content,
+                            timestamp=ts,
+                            agent_id=item.get("agentId") or item.get("agent_id"),
+                        ),
+                    )
+
+            effective_turn_count: int | None = turn_count
+            if effective_turn_count is None:
+                if history_items:
+                    effective_turn_count = len(history_items)
+                elif turn_ids:
+                    effective_turn_count = len(turn_ids)
+
+            current_turn_id = turn_ids[-1] if turn_ids else None
+
+            dialog_context = DialogContext(
+                turn_id=current_turn_id,
+                turn_count=effective_turn_count,
+                history=history_items,
+                current_intent=current_intent,
+                entities=None,
+            )
+
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
             user_id=session.get("user_id", ""),
@@ -242,6 +304,9 @@ class SessionService:
             current_task_id=current_task_id,
             task_queue_status_detail=task_queue_status_detail,
             turn_count=turn_count,
+            reference_information=ref_info,
+            turn_ids=turn_ids,
+            dialog_context=dialog_context,
         )
 
     def patch_session_state(self, request: SessionPatchRequest, background_tasks: BackgroundTasks | None = None) -> SessionPatchResponse:
@@ -295,6 +360,29 @@ class SessionService:
                     local_session_key=patch.agent_session_key,
                     agent_type=agent_type_value,
                 )
+
+        # turn_id는 선택적이지만, 전달된 경우 세션 단위로 누적 관리한다.
+        # - 한 세션에 여러 턴이 존재할 수 있으므로 리스트로 저장
+        # - 저장 형식: JSON 직렬화된 리스트(str) 또는 리스트 자체를 모두 허용
+        if request.turn_id is not None:
+            turn_ids: list[str] = []
+
+            existing = session.get("turn_ids")
+            if isinstance(existing, list):
+                turn_ids = [str(t) for t in existing]
+            elif isinstance(existing, str):
+                try:
+                    parsed = json.loads(existing)
+                    if isinstance(parsed, list):
+                        turn_ids = [str(t) for t in parsed]
+                except json.JSONDecodeError:
+                    # 형식이 이상하면 새로 시작
+                    turn_ids = []
+
+            if request.turn_id not in turn_ids:
+                turn_ids.append(request.turn_id)
+
+            updates["turn_ids"] = json.dumps(turn_ids)
 
         self.session_repo.update(request.global_session_key, **updates)
 
