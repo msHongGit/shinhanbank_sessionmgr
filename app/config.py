@@ -65,8 +65,12 @@ if not REDIS_URL:
     # 로컬호스트 Redis를 기본값으로 사용한다.
     # - 실제 Redis 연결이 필요 없는 헬스체크/스모크 테스트용 시나리오를 지원하기 위한 설정
     # - 운영 환경에서는 반드시 REDIS_URL 을 명시적으로 설정해야 한다.
-    REDIS_URL = "rediss://:$40eMR6v24M6rghbwNjZeAZJxZIABPERQHAzCaFCHkJY=@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0"
+    REDIS_URL = "redis://default:$40eMR6v24M6rghbwNjZeAZJxZIABPERQHAzCaFCHkJY=@redis-shinhan-sol-test.koreacentral.redis.azure.net:10000/0"
 REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", "10"))
+
+# Redis Mock 모드 플래그 (테스트/스모크용)
+# - true 이면 Redis 대신 In-Memory MockRepository를 사용한다.
+USE_MOCK_REDIS: bool = os.getenv("USE_MOCK_REDIS", "false").lower() == "true"
 
 # === TTL Settings ===
 # 기본 TTL은 600초(5분)로 설정하며, 환경변수로 오버라이드 가능

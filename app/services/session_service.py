@@ -16,6 +16,7 @@ from app.config import (
     LOCAL_SESSION_PREFIX,
     SESSION_CACHE_TTL,
     SESSION_MAP_TTL,
+    USE_MOCK_REDIS,
 )
 from app.core.exceptions import SessionNotFoundError
 from app.repositories import (
@@ -58,12 +59,19 @@ class SessionService:
         profile_repo=None,
     ):
         if session_repo is not None and context_repo is not None:
+            # 명시적으로 Repository가 주입된 경우 그대로 사용
             self.session_repo = session_repo
             self.context_repo = context_repo
         else:
-            # 기본값: 세션/컨텍스트/세션 매핑은 Redis 사용
-            self.session_repo = RedisSessionRepository()
-            self.context_repo = RedisContextRepository()
+            # 기본 Repository 선택:
+            # - USE_MOCK_REDIS=true 이면 In-Memory Mock Repository 사용 (Redis 불필요)
+            # - 그렇지 않으면 Redis 기반 Repository 사용
+            if USE_MOCK_REDIS:
+                self.session_repo = MockSessionRepository()
+                self.context_repo = MockContextRepository()
+            else:
+                self.session_repo = RedisSessionRepository()
+                self.context_repo = RedisContextRepository()
 
         # Profile Repository는 주입된 값을 그대로 사용 (없으면 None)
         self.profile_repo = profile_repo
