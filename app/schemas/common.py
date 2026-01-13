@@ -338,6 +338,15 @@ class StatePatch(BaseModel):
         None,
         description="MA에서 추가로 세션에 저장하고 싶은 임의의 속성 맵",
     )
+    # MA 측에서 state_patch 최상위에 내려주는 멀티턴 필드 (향후 reference_information 안으로 정규화)
+    current_intent: str | None = Field(
+        None,
+        description="현재 활성 의도 (MA가 state_patch.current_intent 로 보내는 값)",
+    )
+    turn_count: int | None = Field(
+        None,
+        description="대화 턴 수 (MA가 state_patch.turn_count 로 보내는 값)",
+    )
 
 
 class SessionPatchRequest(BaseModel):

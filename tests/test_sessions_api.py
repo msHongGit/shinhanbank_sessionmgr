@@ -50,24 +50,9 @@ class TestMultiTurnConversationHistory:
         assert data["conversation_history"] == conversation_history
         assert data["current_intent"] == "계좌조회"
 
-        # 5. turn_ids 및 dialog_context가 멀티턴 명세에 맞게 노출되는지 확인
+        # 5. turn_ids 가 멀티턴 명세에 맞게 노출되는지 확인
         assert "turn_ids" in data
         assert data["turn_ids"] == ["turn_001"]
-
-        assert "dialog_context" in data
-        dialog_context = data["dialog_context"]
-
-        # DialogContext 기본 필드 검증
-        assert dialog_context["turnId"] == "turn_001"
-        assert dialog_context["currentIntent"] == "계좌조회"
-        assert isinstance(dialog_context["history"], list)
-        assert len(dialog_context["history"]) == len(conversation_history)
-
-        # history 내부 DialogTurn 구조 검증 (role, content 유지)
-        for idx, turn in enumerate(conversation_history):
-            dc_turn = dialog_context["history"][idx]
-            assert dc_turn["role"] == turn["role"]
-            assert dc_turn["content"] == turn["content"]
 
     def test_multiturn_turn_ids_accumulate(self, client, agw_headers, ma_headers):
         """
@@ -124,11 +109,6 @@ class TestMultiTurnConversationHistory:
 
         # turn_ids가 순서대로 누적되었는지 확인
         assert data["turn_ids"] == ["turn_001", "turn_002"]
-
-        # dialog_context.turnId가 마지막 턴 ID를 가리키는지 확인
-        assert "dialog_context" in data
-        dialog_context = data["dialog_context"]
-        assert dialog_context["turnId"] == "turn_002"
 
     def test_reference_information_custom_keys_roundtrip(self, client, agw_headers, ma_headers):
         """

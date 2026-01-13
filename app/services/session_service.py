@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 
 from app.config import (
     CONTEXT_ID_PREFIX,
@@ -88,6 +88,36 @@ class SessionService:
         - 리스트(conversation_history 등)의 순서는 그대로 유지된다.
         """
         return json.dumps(ref_info, sort_keys=True, ensure_ascii=False)
+
+    @staticmethod
+    def _validate_reference_information(ref_info: dict[str, Any]) -> None:
+        """reference_information 구조 검증.
+
+        - conversation_history 가 존재하면 반드시 리스트여야 한다.
+        - turn_count 가 존재하면 반드시 정수여야 한다.
+
+        MA에서 보낸 값이 조회 단계에서 ValidationError를 일으키지 않도록
+        업데이트(PATCH) 시점에 먼저 방어적으로 검증한다.
+        """
+        conv = ref_info.get("conversation_history")
+        if conv is not None and not isinstance(conv, list):
+            raise HTTPException(
+                status_code=400,
+                detail="reference_information.conversation_history must be a list",
+            )
+
+        if (
+            "turn_count" in ref_info
+            and ref_info["turn_count"] is not None
+            and not isinstance(
+                ref_info["turn_count"],
+                int,
+            )
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="reference_information.turn_count must be an integer",
+            )
 
     def _generate_id(self, prefix: str) -> str:
         """ID 생성"""
@@ -238,6 +268,14 @@ class SessionService:
             task_queue_status_detail = ref_info.get("task_queue_status")
             turn_count = ref_info.get("turn_count")
 
+        # 타입이 예상과 다를 경우 조회 단계에서 전체 에러를 내지 않도록 방어적으로 정리
+        if conversation_history is not None and not isinstance(conversation_history, list):
+            conversation_history = None
+        if task_queue_status_detail is not None and not isinstance(task_queue_status_detail, list):
+            task_queue_status_detail = None
+        if turn_count is not None and not isinstance(turn_count, int):
+            turn_count = None
+
         channel_info: ChannelInfo | None = None
         stored_channel = session.get("channel")
         stored_start_type = session.get("start_type")
@@ -261,52 +299,10 @@ class SessionService:
             except json.JSONDecodeError:
                 turn_ids = None
 
-        # Sub-Agent 표준 스펙과 호환되는 DialogContext 구성
+        # Sub-Agent 표준 스펙과 호환되는 DialogContext 구성은
+        # 향후 MA/AGW에서 직접 사용이 확정될 때 활성화한다.
+        # 현재는 최소 필드(round-trip 보장용)만 제공하고 dialog_context 는 None 으로 둔다.
         dialog_context: DialogContext | None = None
-        if conversation_history or current_intent or turn_count or turn_ids:
-            history_items: list[DialogTurn] = []
-            if isinstance(conversation_history, list):
-                for item in conversation_history:
-                    if not isinstance(item, dict):
-                        continue
-
-                    role = (item.get("role") or "user") if isinstance(item.get("role"), str) else "user"
-                    content = (item.get("content") or "") if isinstance(item.get("content"), str) else ""
-
-                    # timestamp는 문자열일 경우 ISO8601 파싱 시도, 없거나 실패하면 None
-                    ts_value = item.get("timestamp")
-                    ts: datetime | None = None
-                    if isinstance(ts_value, str):
-                        try:
-                            ts = datetime.fromisoformat(ts_value)
-                        except ValueError:
-                            ts = None
-
-                    history_items.append(
-                        DialogTurn(
-                            role=role,
-                            content=content,
-                            timestamp=ts,
-                            agent_id=item.get("agentId") or item.get("agent_id"),
-                        ),
-                    )
-
-            effective_turn_count: int | None = turn_count
-            if effective_turn_count is None:
-                if history_items:
-                    effective_turn_count = len(history_items)
-                elif turn_ids:
-                    effective_turn_count = len(turn_ids)
-
-            current_turn_id = turn_ids[-1] if turn_ids else None
-
-            dialog_context = DialogContext(
-                turn_id=current_turn_id,
-                turn_count=effective_turn_count,
-                history=history_items,
-                current_intent=current_intent,
-                entities=None,
-            )
 
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
@@ -355,10 +351,24 @@ class SessionService:
                 updates["subagent_status"] = patch.subagent_status.value
             if patch.action_owner:
                 updates["action_owner"] = patch.action_owner
-            if patch.reference_information:
-                # reference_information은 JSON으로 직렬화할 때 키를 정렬하여
-                # Redis/MariaDB에 일관된 형태로 저장한다.
-                updates["reference_information"] = self._serialize_reference_information(patch.reference_information)
+
+            # reference_information 은 MA가 내려주는 구조를 가급적 그대로 저장하되,
+            # current_intent / turn_count 가 state_patch 최상위에 온 경우 함께 병합하여 보관한다.
+            if patch.reference_information is not None:
+                ref_info: dict[str, Any] = dict(patch.reference_information)
+            else:
+                ref_info = {}
+
+            if patch.current_intent is not None:
+                ref_info["current_intent"] = patch.current_intent
+            if patch.turn_count is not None:
+                ref_info["turn_count"] = patch.turn_count
+
+            if ref_info:
+                # 업데이트 단계에서 구조를 검증하여, 조회 단계에서의 ValidationError를 방지한다.
+                self._validate_reference_information(ref_info)
+                updates["reference_information"] = self._serialize_reference_information(ref_info)
+
             if patch.cushion_message:
                 updates["cushion_message"] = patch.cushion_message
             if patch.session_attributes:

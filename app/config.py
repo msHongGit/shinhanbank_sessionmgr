@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 CONFIG_ENV_PATH = Path(__file__).with_suffix(".env")
