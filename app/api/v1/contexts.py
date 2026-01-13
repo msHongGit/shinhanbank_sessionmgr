@@ -11,7 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.v1.sessions import get_session_service
 from app.repositories import ContextRepositoryInterface, RedisContextRepository
-from app.schemas.contexts import SolApiResultRequest, TurnResponse
+from app.schemas.common import SessionResolveRequest
+from app.schemas.contexts import SessionFullResponse, SolApiResultRequest, TurnResponse
 from app.services.session_service import SessionService
 
 router = APIRouter(prefix="/contexts", tags=["Contexts"])
@@ -117,3 +118,53 @@ async def save_sol_api_result(
     repo.add_turn(context_id, turn_data)
 
     return TurnResponse(**turn_data)
+
+
+@router.get(
+    "/sessions/{global_session_key}/full",
+    response_model=SessionFullResponse,
+    summary="세션 전체 정보 조회 (세션 + 턴 목록)",
+    description="""
+    세션 메타데이터와 해당 세션의 모든 턴 메타데이터를 한 번에 조회합니다.
+
+    필수 경로 변수:
+    - global_session_key: 조회할 세션 키
+
+    주요 응답 필드:
+    - session: 세션 메타데이터 전체 (GET /api/v1/sessions/{key} 와 동일한 구조)
+    - turns: 턴 메타데이터 목록 (POST /api/v1/contexts/turn-results 로 저장된 데이터)
+    - total_turns: 전체 턴 수
+
+    사용 사례:
+    - 관리자/Portal이 특정 세션의 전체 이력 조회
+    - 디버깅/모니터링 시 세션 상태 + SOL API 호출 이력 확인
+    """,
+)
+async def get_session_full(
+    global_session_key: str,
+    repo: ContextRepositoryInterface = Depends(get_context_repo),
+    service: SessionService = Depends(get_session_service),
+):
+    """세션 메타데이터 + 모든 턴 메타데이터를 한 번에 조회합니다."""
+
+    # 1) 세션 조회 (SessionResolveResponse)
+    session_response = service.resolve_session(SessionResolveRequest(global_session_key=global_session_key))
+
+    # 2) Context ID로 턴 목록 조회
+    session = service.session_repo.get(global_session_key)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
+
+    context_id = session.get("context_id")
+
+    turns = []
+    if context_id:
+        context = repo.get(context_id)
+        if context:
+            turns = repo.get_turns(context_id)
+
+    return SessionFullResponse(
+        session=session_response.model_dump(),
+        turns=turns,
+        total_turns=len(turns),
+    )

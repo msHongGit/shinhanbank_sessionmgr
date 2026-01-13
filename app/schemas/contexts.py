@@ -72,3 +72,11 @@ class SolApiResultRequest(BaseModel):
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class SessionFullResponse(BaseModel):
+    """세션 전체 정보 응답 (세션 메타데이터 + 턴 목록)."""
+
+    session: dict[str, Any] = Field(..., description="세션 메타데이터 (SessionResolveResponse 구조)")
+    turns: list[dict[str, Any]] = Field(default_factory=list, description="턴 메타데이터 목록")
+    total_turns: int = Field(..., description="전체 턴 수")

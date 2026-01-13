@@ -46,26 +46,53 @@ app = FastAPI(
     title="Session Manager API",
     description=dedent(
         """
-                ## Session Manager v4.0 (Sprint 3)
+        ## Session Manager v4.0 (Sprint 3+)
 
-                - 세션 상태 (start / talk / end), SubAgent 상태, Task Queue 상태 관리
-                                - Global 세션 ↔ 업무 Agent 세션 키 매핑 관리
-                                - 멀티턴 컨텍스트(reference_information)를 세션 조회 응답에서 옵션 A 구조로 노출
-                                    (active_task, conversation_history, current_intent 등)
-                - SOL 실시간 API 연동 결과 메타데이터 저장 (Context/Turn 메타데이터, 대화 텍스트는 저장하지 않음)
-                - 외부 Profile Repository에서 조회한 고객 개인화 프로파일 스냅샷 캐시
+        은행 AI Agent 시스템의 세션/컨텍스트 관리 서비스
 
-                - 주요 API:
-                    - `/api/v1/sessions` : 세션 생성 / 조회 / 상태 업데이트 / 종료
-                    - `/api/v1/contexts` : SOL 실시간 API 결과 저장 (turn-results 전용)
+        ### 주요 기능
 
-                - 저장소:
-                    - Redis : 세션/컨텍스트/턴 메타데이터 캐시 및 저장 (기본 TTL 600초)
-                    - MariaDB(Context DB) : 향후 영구 저장용으로 연동 예정 (현재 미사용)
+        **세션 관리**
+        - 세션 생성/조회/상태 업데이트/종료/Ping (TTL 연장)
+        - 세션 상태 관리: start / talk / end
+        - SubAgent 상태 관리: undefined / continue / end
+        - Global 세션 ↔ 업무 Agent 세션 키 매핑
 
-                - 실행 모드:
-                    - 로컬/Dev: Redis + Mock Profile Repository (API Key 인증 비활성화)
-                    - 운영: Redis + MariaDB 하이브리드 모드 목표 (아직 미구현)
+        **멀티턴 컨텍스트**
+        - `reference_information` 을 통한 대화 이력 관리
+        - PATCH로 업데이트, GET으로 조회 시 자동 파싱
+        - 주요 필드: conversation_history, current_intent, turn_count, task_queue_status 등
+
+        **개인화 프로파일**
+        - 세션 생성 시 user_id 기반 자동 조회 및 스냅샷 저장
+        - 세션 조회 시 customer_profile 필드로 반환
+
+        **SOL API 연동 로그**
+        - 실시간 API 호출 결과를 turnId 기반 메타데이터로 저장
+        - 세션 전체 정보 조회 API로 세션 + 턴 목록 한 번에 확인 가능
+
+        ### 주요 API 엔드포인트
+
+        **Sessions API** (`/api/v1/sessions`)
+        - `POST /sessions` - 세션 생성
+        - `GET /sessions/{key}` - 세션 조회
+        - `GET /sessions/{key}/ping` - 세션 생존 확인 및 TTL 연장
+        - `PATCH /sessions/{key}/state` - 세션 상태 업데이트
+        - `DELETE /sessions/{key}` - 세션 종료
+
+        **Contexts API** (`/api/v1/contexts`)
+        - `POST /contexts/turn-results` - SOL API 결과 저장
+        - `GET /contexts/sessions/{key}/full` - 세션 전체 정보 조회 (세션 + 턴 목록)
+
+        ### 저장소
+
+        - **Redis**: 세션/컨텍스트/턴 메타데이터 캐시 (기본 TTL 600초)
+        - **MariaDB**: 향후 영구 저장용 (현재 미사용)
+
+        ### 환경
+
+        - 로컬/Dev: Redis + Mock Profile Repository
+        - 운영: 환경변수 기반 설정 (API Key 인증 활성화 가능)
         """
     ),
     version="4.0.0",
