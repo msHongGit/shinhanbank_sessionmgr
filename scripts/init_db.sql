@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Session Manager v4.0 - MariaDB Schema
--- Sprint 3: Context DB 초기화 스크립트
+-- Sprint 4: Context DB 초기화 스크립트 (필드명 통일: action_owner, updated_at)
 -- ============================================================================
 
 -- 데이터베이스 생성
@@ -23,11 +23,17 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_state VARCHAR(20) NOT NULL DEFAULT 'start',
     task_queue_status VARCHAR(20) DEFAULT 'null',
     subagent_status VARCHAR(20) DEFAULT 'undefined',
-    current_subagent_id VARCHAR(255),
-    metadata JSON,
+    action_owner VARCHAR(255),
+    reference_information JSON COMMENT '멀티턴 컨텍스트 (conversation_history, current_intent, turn_count 등)',
+    turn_ids JSON COMMENT '누적 턴 ID 목록',
+    start_type VARCHAR(50) COMMENT '세션 진입 유형 (event_type, 예: ICON_ENTRY)',
+    ended_at DATETIME(6) COMMENT '세션 종료 시각',
+    close_reason VARCHAR(100) COMMENT '종료 사유',
+    final_summary VARCHAR(1000) COMMENT '최종 요약',
+    metadata JSON COMMENT '기타 메타데이터 (customer_profile, cushion_message, last_event, session_attributes 등)',
     profile JSON COMMENT 'User profile attributes at session creation',
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    last_updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     expires_at DATETIME(6),
     INDEX idx_global_session_key (global_session_key),
     INDEX idx_conversation_id (conversation_id),
@@ -67,7 +73,7 @@ CREATE TABLE IF NOT EXISTS contexts (
     turn_count INT NOT NULL DEFAULT 0,
     metadata JSON,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    last_updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     INDEX idx_context_id (context_id),
     INDEX idx_global_session_key (global_session_key),
     FOREIGN KEY (global_session_key) REFERENCES sessions(global_session_key) ON DELETE CASCADE
@@ -124,7 +130,7 @@ CREATE TABLE IF NOT EXISTS profile_attributes (
 -- ============================================================================
 
 -- 복합 인덱스 추가
-CREATE INDEX idx_sessions_state_updated ON sessions(session_state, last_updated_at);
+CREATE INDEX idx_sessions_state_updated ON sessions(session_state, updated_at);
 CREATE INDEX idx_agent_sessions_active ON agent_sessions(is_active, last_used_at);
 CREATE INDEX idx_turns_context_number ON conversation_turns(context_id, turn_number);
 

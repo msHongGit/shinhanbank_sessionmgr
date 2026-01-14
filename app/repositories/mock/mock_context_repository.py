@@ -6,10 +6,8 @@ In-Memory Dict 기반 Context 저장소 (Singleton)
 from datetime import UTC, datetime
 from typing import Any
 
-from app.repositories.base import ContextRepositoryInterface
 
-
-class MockContextRepository(ContextRepositoryInterface):
+class MockContextRepository:
     """Mock Context Repository (Singleton, Sync)"""
 
     _instance = None
@@ -29,7 +27,7 @@ class MockContextRepository(ContextRepositoryInterface):
             "global_session_key": global_session_key,
             "user_id": user_id,
             "created_at": now.isoformat(),
-            "last_updated_at": now.isoformat(),
+            "updated_at": now.isoformat(),
         }
 
         self._contexts[context_id] = context
@@ -48,9 +46,9 @@ class MockContextRepository(ContextRepositoryInterface):
 
         self._turns[context_id].append(turn_data)
 
-        # Context last_updated_at 업데이트
+        # Context updated_at 업데이트
         if context_id in self._contexts:
-            self._contexts[context_id]["last_updated_at"] = datetime.now(UTC).isoformat()
+            self._contexts[context_id]["updated_at"] = datetime.now(UTC).isoformat()
 
     def get_turns(self, context_id: str) -> list[dict[str, Any]]:
         """대화 턴 목록 조회"""

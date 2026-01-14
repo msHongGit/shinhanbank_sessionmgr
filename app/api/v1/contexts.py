@@ -4,21 +4,26 @@ Sprint 3+: Context CRUD/조회 API 제거,
 session_id, turn_id 기반 실시간 API 연동 결과 저장 전용.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.api.v1.sessions import get_session_service
-from app.repositories import ContextRepositoryInterface, RedisContextRepository
+from app.db.mariadb import SessionLocal
+from app.repositories import RedisContextRepository
+from app.repositories.mariadb_context_repository import MariaDBContextRepository
 from app.schemas.common import SessionResolveRequest
 from app.schemas.contexts import SessionFullResponse, SolApiResultRequest, TurnResponse
 from app.services.session_service import SessionService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/contexts", tags=["Contexts"])
 
 
-def get_context_repo() -> ContextRepositoryInterface:
+def get_context_repo():
     """ContextRepository 의존성 - Redis 사용 (실시간 턴 메타데이터 관리)."""
 
     return RedisContextRepository()
@@ -52,7 +57,8 @@ def get_context_repo() -> ContextRepositoryInterface:
 )
 async def save_sol_api_result(
     request: SolApiResultRequest,
-    repo: ContextRepositoryInterface = Depends(get_context_repo),
+    background_tasks: BackgroundTasks,
+    repo=Depends(get_context_repo),
     service: SessionService = Depends(get_session_service),
 ):
     """실시간 API 연동 결과를 컨텍스트 턴 메타데이터로 저장한다."""
@@ -65,6 +71,8 @@ async def save_sol_api_result(
     context_id = session.get("context_id")
     if not context_id:
         raise HTTPException(status_code=400, detail="Context ID not found in session")
+
+    global_session_key = request.session_id
 
     # 2) SOL API 요청/응답 메타데이터 구성 (SOL 스펙 필드명을 그대로 유지)
     request_payloads = [p.model_dump(by_alias=True) for p in request.transaction_payload] if request.transaction_payload else []
@@ -102,7 +110,7 @@ async def save_sol_api_result(
     if response_block:
         sol_metadata["response"] = response_block
 
-    # 3) 턴 메타데이터로 저장 (RedisContextRepository)
+    # 3) 턴 메타데이터로 저장 (Redis에 즉시 저장)
     now = datetime.now(UTC).isoformat()
     turn_data = {
         "turn_id": request.turn_id,
@@ -115,9 +123,73 @@ async def save_sol_api_result(
     if not context:
         raise HTTPException(status_code=404, detail=f"Context not found: {context_id}")
 
+    # Redis에 즉시 저장
     repo.add_turn(context_id, turn_data)
 
+    # MariaDB에 비동기 저장
+    background_tasks.add_task(
+        _save_turn_to_mariadb,
+        turn_id=request.turn_id,
+        context_id=context_id,
+        global_session_key=global_session_key,
+        agent_id=request.agent_id,
+        metadata={"sol_api": sol_metadata},
+    )
+
     return TurnResponse(**turn_data)
+
+
+def _save_turn_to_mariadb(
+    turn_id: str,
+    context_id: str,
+    global_session_key: str,
+    agent_id: str | None,
+    metadata: dict[str, Any],
+) -> None:
+    """턴 데이터를 MariaDB에 비동기 저장
+
+    BackgroundTasks에서 호출되어 API 응답 후 실행된다.
+    MariaDB 연결이 없거나 에러가 발생해도 로깅만 하고 예외를 발생시키지 않는다.
+    """
+    if SessionLocal is None:
+        logger.debug(f"MariaDB not configured, skipping turn save for {turn_id}")
+        return
+
+    try:
+        db = SessionLocal()
+        try:
+            mariadb_repo = MariaDBContextRepository(db)
+
+            # Context에서 turn_count 조회하여 turn_number 결정
+            context = mariadb_repo.get_context(context_id)
+            if context:
+                turn_number = context.turn_count + 1
+            else:
+                # Context가 없으면 생성
+                context = mariadb_repo.create_context(context_id, global_session_key)
+                turn_number = 1
+
+            # Turn 저장
+            mariadb_repo.create_turn(
+                turn_id=turn_id,
+                context_id=context_id,
+                global_session_key=global_session_key,
+                turn_number=turn_number,
+                role="assistant",  # SOL API 결과는 assistant 역할
+                agent_id=agent_id,
+                agent_type=None,  # SOL API 결과에는 agent_type이 없을 수 있음
+                metadata=metadata,
+            )
+
+            # turn_count 증가
+            mariadb_repo.increment_turn_count(context_id)
+
+            logger.debug(f"Turn saved to MariaDB: {turn_id}")
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Failed to save turn to MariaDB: {turn_id}, error: {e}", exc_info=True)
 
 
 @router.get(
@@ -142,7 +214,7 @@ async def save_sol_api_result(
 )
 async def get_session_full(
     global_session_key: str,
-    repo: ContextRepositoryInterface = Depends(get_context_repo),
+    repo=Depends(get_context_repo),
     service: SessionService = Depends(get_session_service),
 ):
     """세션 메타데이터 + 모든 턴 메타데이터를 한 번에 조회합니다."""

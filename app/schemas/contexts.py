@@ -14,8 +14,14 @@ class TurnResponse(BaseModel):
     """턴 응답 (메타데이터 전용)"""
 
     turn_id: str
-    timestamp: str
+    context_id: str | None = None
+    global_session_key: str | None = None
+    turn_number: int | None = None
+    role: str | None = None
+    agent_id: str | None = None
+    agent_type: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    timestamp: datetime | str
 
 
 class SolDBSTransactionPayload(BaseModel):

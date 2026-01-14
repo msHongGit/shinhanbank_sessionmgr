@@ -4,6 +4,7 @@
 """
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -19,14 +20,17 @@ from app.config import (
     USE_MOCK_REDIS,
 )
 from app.core.exceptions import SessionNotFoundError
+from app.core.utils import datetime_to_iso, iso_to_datetime, safe_json_dumps, safe_json_parse
+from app.db.mariadb import SessionLocal
 from app.repositories import (
-    ContextRepositoryInterface,
     MockContextRepository,
     MockSessionRepository,
     RedisContextRepository,
     RedisSessionRepository,
-    SessionRepositoryInterface,
 )
+from app.repositories.mariadb_session_repository import MariaDBSessionRepository
+
+logger = logging.getLogger(__name__)
 from app.schemas.common import (
     AgentType,
     ChannelInfo,
@@ -54,8 +58,8 @@ class SessionService:
 
     def __init__(
         self,
-        session_repo: SessionRepositoryInterface | None = None,
-        context_repo: ContextRepositoryInterface | None = None,
+        session_repo=None,
+        context_repo=None,
         profile_repo=None,
     ):
         if session_repo is not None and context_repo is not None:
@@ -87,7 +91,8 @@ class SessionService:
         - JSON 객체 키를 정렬(sort_keys=True)하여 일관된 저장 형태를 유지한다.
         - 리스트(conversation_history 등)의 순서는 그대로 유지된다.
         """
-        return json.dumps(ref_info, sort_keys=True, ensure_ascii=False)
+        result = safe_json_dumps(ref_info, sort_keys=True, ensure_ascii=False)
+        return result or "{}"
 
     @staticmethod
     def _validate_reference_information(ref_info: dict[str, Any]) -> None:
@@ -137,14 +142,78 @@ class SessionService:
                 return None
 
         if isinstance(raw, str):
-            try:
-                data = json.loads(raw)
-                if isinstance(data, dict):
+            data = safe_json_parse(raw)
+            if isinstance(data, dict):
+                try:
                     return CustomerProfile(**data)
-            except Exception:
-                return None
+                except (ValueError, TypeError):
+                    return None
 
         return None
+
+    def _save_session_to_mariadb(self, global_session_key: str) -> None:
+        """Redis 세션 스냅샷을 MariaDB에 비동기 저장
+
+        BackgroundTasks에서 호출되어 API 응답 후 실행된다.
+        MariaDB 연결이 없거나 에러가 발생해도 로깅만 하고 예외를 발생시키지 않는다.
+
+        저장 내용:
+        - 세션 메타데이터 (SessionModel)
+        - Agent 세션 매핑 (AgentSessionModel) - Redis session_map에서 조회하여 저장
+        """
+        if SessionLocal is None:
+            # MariaDB가 구축되지 않은 경우 스킵
+            logger.debug(f"MariaDB not configured, skipping session save for {global_session_key}")
+            return
+
+        try:
+            # Redis에서 최신 세션 데이터 조회
+            session_data = self.session_repo.get(global_session_key)
+            if not session_data:
+                logger.warning(f"Session not found in Redis: {global_session_key}")
+                return
+
+            # MariaDB 세션 저장
+            db = SessionLocal()
+            try:
+                mariadb_repo = MariaDBSessionRepository(db)
+                mariadb_repo.create_or_update(global_session_key, session_data)
+
+                # Agent 세션 매핑도 저장 (Redis session_map에서 조회)
+                if isinstance(self.session_repo, RedisSessionRepository):
+                    from app.db.redis import RedisHelper, get_redis_client
+
+                    redis_client = get_redis_client()
+                    redis_helper = RedisHelper(redis_client)
+                    mappings = redis_helper.get_all_mappings_for_session(global_session_key)
+
+                    for mapping_data in mappings:
+                        try:
+                            agent_id = mapping_data.get("agent_id")
+                            agent_session_key = mapping_data.get("agent_session_key")
+                            agent_type = mapping_data.get("agent_type", "task")
+
+                            if agent_id and agent_session_key:
+                                mariadb_repo.create_or_update_agent_mapping(
+                                    global_session_key=global_session_key,
+                                    agent_id=agent_id,
+                                    agent_session_key=agent_session_key,
+                                    agent_type=agent_type,
+                                )
+                                logger.debug(
+                                    f"Agent mapping saved to MariaDB: {global_session_key} -> {agent_id} ({agent_session_key})"
+                                )
+                        except Exception as mapping_error:
+                            logger.warning(f"Failed to save agent mapping: {mapping_error}")
+
+                logger.debug(f"Session saved to MariaDB: {global_session_key}")
+            finally:
+                db.close()
+
+        except Exception as e:
+            # MariaDB 저장 실패는 로깅만 하고 예외를 전파하지 않음
+            # (API 응답은 이미 완료되었으므로)
+            logger.error(f"Failed to save session to MariaDB: {global_session_key}, error: {e}", exc_info=True)
 
     # ============ AGW API ============
 
@@ -203,9 +272,9 @@ class SessionService:
             user_id=request.user_id,
         )
 
-        # TODO: MariaDB 비동기 저장
-        # if background_tasks:
-        #     background_tasks.add_task(self._save_session_to_mariadb, global_session_key)
+        # MariaDB 비동기 저장
+        if background_tasks:
+            background_tasks.add_task(self._save_session_to_mariadb, global_session_key)
 
         # 외부 응답은 Global 세션 키만 반환 (상세 메타데이터는 조회 API에서 확인)
         return SessionCreateResponse(global_session_key=global_session_key)
@@ -226,32 +295,21 @@ class SessionService:
                 request.agent_id,
             )
             if mapping:
-                # RedisSessionRepository는 "local_session_key"를, MockSessionRepository는
-                # "agent_session_key"를 사용하므로 모두 지원하도록 처리
-                agent_session_key = mapping.get("local_session_key") or mapping.get("agent_session_key")
+                # Redis와 Mock 모두 "agent_session_key" 사용
+                agent_session_key = mapping.get("agent_session_key")
 
         task_queue_status = TaskQueueStatus(session.get("task_queue_status", "null"))
 
         last_event = None
-        if session.get("last_event"):
+        event_data = safe_json_parse(session.get("last_event"))
+        if event_data and isinstance(event_data, dict):
             try:
-                event_data = json.loads(session.get("last_event"))
                 last_event = LastEvent(**event_data)
-            except (json.JSONDecodeError, ValueError):
+            except (ValueError, TypeError):
                 pass
 
         # 멀티턴 reference_information 파싱 (mulititurn.md 옵션 A)
-        ref_info_raw = session.get("reference_information")
-        ref_info: dict[str, Any] | None = None
-        if isinstance(ref_info_raw, str):
-            try:
-                parsed = json.loads(ref_info_raw)
-                if isinstance(parsed, dict):
-                    ref_info = parsed
-            except json.JSONDecodeError:
-                ref_info = None
-        elif isinstance(ref_info_raw, dict):
-            ref_info = ref_info_raw
+        ref_info = safe_json_parse(session.get("reference_information"))
 
         active_task = None
         conversation_history = None
@@ -288,16 +346,9 @@ class SessionService:
 
         # 누적 turn_id 목록 파싱
         turn_ids: list[str] | None = None
-        raw_turn_ids = session.get("turn_ids")
-        if isinstance(raw_turn_ids, list):
-            turn_ids = [str(t) for t in raw_turn_ids]
-        elif isinstance(raw_turn_ids, str):
-            try:
-                parsed_turn_ids = json.loads(raw_turn_ids)
-                if isinstance(parsed_turn_ids, list):
-                    turn_ids = [str(t) for t in parsed_turn_ids]
-            except json.JSONDecodeError:
-                turn_ids = None
+        parsed_turn_ids = safe_json_parse(session.get("turn_ids"))
+        if isinstance(parsed_turn_ids, list):
+            turn_ids = [str(t) for t in parsed_turn_ids]
 
         # Sub-Agent 표준 스펙과 호환되는 DialogContext 구성은
         # 향후 MA/AGW에서 직접 사용이 확정될 때 활성화한다.
@@ -372,7 +423,9 @@ class SessionService:
             if patch.cushion_message:
                 updates["cushion_message"] = patch.cushion_message
             if patch.session_attributes:
-                updates["session_attributes"] = json.dumps(patch.session_attributes)
+                session_attrs_str = safe_json_dumps(patch.session_attributes)
+                if session_attrs_str:
+                    updates["session_attributes"] = session_attrs_str
 
             if patch.last_agent_id or patch.last_response_type:
                 last_event = {
@@ -380,9 +433,11 @@ class SessionService:
                     "agent_id": patch.last_agent_id,
                     "agent_type": patch.last_agent_type.value if patch.last_agent_type else None,
                     "response_type": patch.last_response_type.value if patch.last_response_type else None,
-                    "updated_at": now.isoformat(),
+                    "updated_at": datetime_to_iso(now),
                 }
-                updates["last_event"] = json.dumps(last_event)
+                last_event_str = safe_json_dumps(last_event)
+                if last_event_str:
+                    updates["last_event"] = last_event_str
 
             # Agent 세션 매핑 등록 (세션 상태 업데이트 시 함께 처리)
             if patch.agent_session_key and patch.last_agent_id:
@@ -390,7 +445,7 @@ class SessionService:
                 self.session_repo.set_local_mapping(
                     global_session_key=request.global_session_key,
                     agent_id=patch.last_agent_id,
-                    local_session_key=patch.agent_session_key,
+                    agent_session_key=patch.agent_session_key,
                     agent_type=agent_type_value,
                 )
 
@@ -400,28 +455,24 @@ class SessionService:
         if request.turn_id is not None:
             turn_ids: list[str] = []
 
-            existing = session.get("turn_ids")
-            if isinstance(existing, list):
-                turn_ids = [str(t) for t in existing]
-            elif isinstance(existing, str):
-                try:
-                    parsed = json.loads(existing)
-                    if isinstance(parsed, list):
-                        turn_ids = [str(t) for t in parsed]
-                except json.JSONDecodeError:
-                    # 형식이 이상하면 새로 시작
-                    turn_ids = []
+            parsed_existing = safe_json_parse(session.get("turn_ids"))
+            if isinstance(parsed_existing, list):
+                turn_ids = [str(t) for t in parsed_existing]
+            else:
+                turn_ids = []
 
             if request.turn_id not in turn_ids:
                 turn_ids.append(request.turn_id)
 
-            updates["turn_ids"] = json.dumps(turn_ids)
+            turn_ids_str = safe_json_dumps(turn_ids)
+            if turn_ids_str:
+                updates["turn_ids"] = turn_ids_str
 
         self.session_repo.update(request.global_session_key, **updates)
 
-        # TODO: MariaDB 비동기 저장
-        # if background_tasks:
-        #     background_tasks.add_task(self._save_session_to_mariadb, request.global_session_key)
+        # MariaDB 비동기 저장
+        if background_tasks:
+            background_tasks.add_task(self._save_session_to_mariadb, request.global_session_key)
 
         return SessionPatchResponse(status="success", updated_at=now)
 
@@ -461,13 +512,13 @@ class SessionService:
             expires_at=expires_at,
         )
 
-    def close_session(self, request: SessionCloseRequest) -> SessionCloseResponse:
+    def close_session(self, request: SessionCloseRequest, background_tasks: BackgroundTasks | None = None) -> SessionCloseResponse:
         """세션 종료 (MA → SM)
 
         세션 종료 흐름:
         1. 세션 상태를 END로 변경
         2. Redis 업데이트
-        3. MariaDB 최종 상태 저장 (동기)
+        3. MariaDB 최종 상태 저장 (비동기)
         """
         session = self.session_repo.get(request.global_session_key)
         if not session:
@@ -478,15 +529,16 @@ class SessionService:
         updates = {
             "session_state": SessionState.END.value,
             "close_reason": request.close_reason,
-            "ended_at": now.isoformat(),
+            "ended_at": datetime_to_iso(now),
         }
         if request.final_summary:
             updates["final_summary"] = request.final_summary
 
         self.session_repo.update(request.global_session_key, **updates)
 
-        # TODO: MariaDB 최종 상태 저장 (동기)
-        # self._save_session_to_mariadb(request.global_session_key)
+        # MariaDB 최종 상태 저장 (비동기)
+        if background_tasks:
+            background_tasks.add_task(self._save_session_to_mariadb, request.global_session_key)
 
         # conversation_id 없이 세션 기준 아카이브 ID 생성
         archived_id = f"arch_{request.global_session_key}"

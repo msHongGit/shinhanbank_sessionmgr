@@ -32,12 +32,19 @@ USE_MOCK_REDIS: bool = os.getenv("USE_MOCK_REDIS", "false").lower() == "true"
 SESSION_CACHE_TTL: int = int(os.getenv("SESSION_CACHE_TTL", "600"))
 SESSION_MAP_TTL: int = int(os.getenv("SESSION_MAP_TTL", "600"))
 
-# === PostgreSQL (향후 사용) ===
-# 현재 Sprint 3에서는 사용하지 않으며, 향후 RDB 연동 시 활용 예정이다.
-DATABASE_URL: str | None = os.getenv("DATABASE_URL")
-DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "5"))
-DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
-DB_ECHO: bool = os.getenv("DB_ECHO", "false").lower() == "true"
+# === MariaDB Configuration ===
+MARIADB_HOST: str = os.getenv("MARIADB_HOST", "localhost")
+MARIADB_PORT: int = int(os.getenv("MARIADB_PORT", "3306"))
+MARIADB_USER: str = os.getenv("MARIADB_USER", "test_user")
+MARIADB_PASSWORD: str = os.getenv("MARIADB_PASSWORD", "test_password")
+MARIADB_DATABASE: str = os.getenv("MARIADB_DATABASE", "session_manager")
+MARIADB_POOL_SIZE: int = int(os.getenv("MARIADB_POOL_SIZE", "10"))
+MARIADB_MAX_OVERFLOW: int = int(os.getenv("MARIADB_MAX_OVERFLOW", "20"))
+MARIADB_POOL_RECYCLE: int = int(os.getenv("MARIADB_POOL_RECYCLE", "3600"))
+MARIADB_ECHO: bool = os.getenv("MARIADB_ECHO", "false").lower() == "true"
+
+# MariaDB 연결 활성화 여부 (test_user/test_password가 아니면 활성화)
+USE_MARIADB: bool = not (MARIADB_USER == "test_user" and MARIADB_PASSWORD == "test_password")
 
 # === Session ID Prefix ===
 GLOBAL_SESSION_PREFIX: str = os.getenv("GLOBAL_SESSION_PREFIX", "gsess")

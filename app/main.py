@@ -1,8 +1,7 @@
-"""Session Manager - Main Application (v4.0, Sprint 3).
+"""Session Manager - Main Application (v4.0, Sprint 4).
 
 세션 상태 / 컨텍스트 메타데이터 / 에이전트 세션 매핑 관리 API 진입점.
-현재 Sprint 3 구현은 Redis 기반 세션/컨텍스트 캐시 + Mock Profile Repository만 사용하며,
-MariaDB(Context DB) 연동은 향후 스프린트에서 추가된다.
+Sprint 4 구현: Redis 기반 세션/컨텍스트 캐시 + MariaDB 영구 저장소 (비동기)
 """
 
 from contextlib import asynccontextmanager
@@ -14,27 +13,23 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
-from app.config import ALLOWED_ORIGINS, API_PREFIX, APP_ENV, DEBUG
+from app.config import ALLOWED_ORIGINS, API_PREFIX, APP_ENV, DEBUG, USE_MOCK_REDIS
 from app.core.exceptions import SessionManagerError
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan - DB/Redis 연결 (Sprint 1: Optional)"""
+    """Application lifespan - DB/Redis 연결"""
     # Startup
     print("🚀 Session Manager starting...")
 
-    # Sprint 1: Mock Repository 사용, DB/Redis 연결 Skip
-    # Sprint 2+: 아래 주석 해제
-    # try:
-    #     from app.db.redis import init_redis
-    #     from app.db.postgres import init_db
-    #     init_redis()
-    #     init_db()
-    # except Exception as e:
-    #     print(f"⚠️ DB/Redis 연결 실패 (Mock 사용): {e}")
+    # Sprint 4: Redis + MariaDB 사용
+    # Redis와 MariaDB 연결은 각 Repository에서 필요 시 초기화됨
+    from app.config import USE_MOCK_REDIS, USE_MARIADB
 
-    print("✅ Session Manager started (Mock Repository Mode)")
+    mode = "Mock" if USE_MOCK_REDIS else "Production"
+    db_status = "MariaDB enabled" if USE_MARIADB else "MariaDB disabled"
+    print(f"✅ Session Manager started ({mode} mode, {db_status})")
 
     yield
 
@@ -86,12 +81,12 @@ app = FastAPI(
 
         ### 저장소
 
-        - **Redis**: 세션/컨텍스트/턴 메타데이터 캐시 (기본 TTL 600초)
-        - **MariaDB**: 향후 영구 저장용 (현재 미사용)
+        - **Redis**: 세션/컨텍스트/턴 메타데이터 캐시 (기본 TTL 600초, 동기 저장)
+        - **MariaDB**: 세션/컨텍스트/턴 영구 저장소 (비동기 저장, BackgroundTasks)
 
         ### 환경
 
-        - 로컬/Dev: Redis + Mock Profile Repository
+        - 로컬/Dev: Redis + MariaDB (또는 Mock 모드)
         - 운영: 환경변수 기반 설정 (API Key 인증 활성화 가능)
         """
     ),
@@ -128,11 +123,12 @@ def session_manager_exception_handler(request, exc: SessionManagerError):
 
 @app.get("/", tags=["Health"])
 def root_health_check():
+    """루트 헬스체크 엔드포인트"""
     return {
         "status": "healthy",
         "service": "session-manager",
         "version": "4.0.0",
-        "mode": "mock",  # Sprint 1
+        "mode": "mock" if USE_MOCK_REDIS else "production",
     }
 
 

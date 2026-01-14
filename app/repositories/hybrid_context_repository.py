@@ -4,13 +4,14 @@ Sprint 3: Redis Cache + MariaDB Persistent Storage
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from fastapi import BackgroundTasks
 from redis import Redis
 from sqlalchemy.orm import Session
 
+from app.core.utils import datetime_to_iso, iso_to_datetime, safe_json_dumps
 from app.db.redis import get_redis_client
 from app.repositories.mariadb_context_repository import MariaDBContextRepository
 from app.schemas.contexts import (
@@ -30,8 +31,9 @@ class HybridContextRepository:
         self.db = db
         self.redis: Redis = get_redis_client()
         self.mariadb_repo = MariaDBContextRepository(db)
-        self.context_ttl = 3600  # 1시간
-        self.turn_ttl = 3600  # 1시간
+        # TTL 상수 (초 단위)
+        self.context_ttl: int = 3600  # 1시간
+        self.turn_ttl: int = 3600  # 1시간
 
     # ========================================================================
     # Context 메서드
@@ -50,10 +52,12 @@ class HybridContextRepository:
             "entities": [],
             "turn_count": 0,
             "metadata": {},
-            "created_at": now.isoformat(),
-            "last_updated_at": now.isoformat(),
+            "created_at": datetime_to_iso(now),
+            "updated_at": datetime_to_iso(now),
         }
-        self.redis.setex(cache_key, self.context_ttl, json.dumps(context_data))
+        json_str = safe_json_dumps(context_data)
+        if json_str:
+            self.redis.setex(cache_key, self.context_ttl, json_str)
 
         # MariaDB에 백그라운드 저장
         background_tasks.add_task(
@@ -63,7 +67,7 @@ class HybridContextRepository:
         )
 
         context_data["created_at"] = now
-        context_data["last_updated_at"] = now
+        context_data["updated_at"] = now
         return ContextResponse(**context_data)
 
     def get_context(self, context_id: str) -> ContextResponse | None:
@@ -74,8 +78,11 @@ class HybridContextRepository:
 
         if cached:
             data = json.loads(cached)
-            data["created_at"] = datetime.fromisoformat(data["created_at"])
-            data["last_updated_at"] = datetime.fromisoformat(data["last_updated_at"])
+            # 필드명 통일: last_updated_at → updated_at (하위 호환성 지원)
+            if "last_updated_at" in data:
+                data["updated_at"] = data.pop("last_updated_at")
+            data["created_at"] = iso_to_datetime(data["created_at"]) or datetime.now()
+            data["updated_at"] = iso_to_datetime(data["updated_at"]) or datetime.now()
             return ContextResponse(**data)
 
         # MariaDB 조회
@@ -92,13 +99,15 @@ class HybridContextRepository:
             "entities": context_model.entities or [],
             "turn_count": context_model.turn_count,
             "metadata": context_model.metadata or {},
-            "created_at": context_model.created_at.isoformat(),
-            "last_updated_at": context_model.last_updated_at.isoformat(),
+            "created_at": datetime_to_iso(context_model.created_at),
+            "updated_at": datetime_to_iso(context_model.updated_at),
         }
-        self.redis.setex(cache_key, self.context_ttl, json.dumps(context_data))
+        json_str = safe_json_dumps(context_data)
+        if json_str:
+            self.redis.setex(cache_key, self.context_ttl, json_str)
 
         context_data["created_at"] = context_model.created_at
-        context_data["last_updated_at"] = context_model.last_updated_at
+        context_data["updated_at"] = context_model.updated_at
         return ContextResponse(**context_data)
 
     def update_context(self, context_id: str, request: ContextUpdate, background_tasks: BackgroundTasks) -> ContextResponse | None:
@@ -119,10 +128,12 @@ class HybridContextRepository:
             "entities": request.entities if request.entities is not None else existing.entities,
             "turn_count": existing.turn_count,
             "metadata": request.metadata if request.metadata is not None else existing.metadata,
-            "created_at": existing.created_at.isoformat() if isinstance(existing.created_at, datetime) else existing.created_at,
-            "last_updated_at": now.isoformat(),
+            "created_at": datetime_to_iso(existing.created_at),
+            "updated_at": datetime_to_iso(now),
         }
-        self.redis.setex(cache_key, self.context_ttl, json.dumps(updated_data))
+        json_str = safe_json_dumps(updated_data)
+        if json_str:
+            self.redis.setex(cache_key, self.context_ttl, json_str)
 
         # MariaDB 백그라운드 업데이트
         background_tasks.add_task(
@@ -135,7 +146,7 @@ class HybridContextRepository:
         )
 
         updated_data["created_at"] = existing.created_at
-        updated_data["last_updated_at"] = now
+        updated_data["updated_at"] = now
         return ContextResponse(**updated_data)
 
     # ========================================================================
@@ -176,9 +187,11 @@ class HybridContextRepository:
             "agent_id": request.agent_id,
             "agent_type": request.agent_type,
             "metadata": request.metadata or {},
-            "timestamp": now.isoformat(),
+            "timestamp": datetime_to_iso(now),
         }
-        self.redis.setex(cache_key, self.turn_ttl, json.dumps(turn_data))
+        json_str = safe_json_dumps(turn_data)
+        if json_str:
+            self.redis.setex(cache_key, self.turn_ttl, json_str)
 
         # Redis Context 캐시 무효화 (turn_count 변경 예정)
         self.redis.delete(f"context:{context_id}")
@@ -207,7 +220,9 @@ class HybridContextRepository:
 
         if cached:
             data = json.loads(cached)
-            data["timestamp"] = datetime.fromisoformat(data["timestamp"])
+            timestamp = iso_to_datetime(data.get("timestamp"))
+            if timestamp:
+                data["timestamp"] = timestamp
             return TurnResponse(**data)
 
         # MariaDB 조회
@@ -225,9 +240,11 @@ class HybridContextRepository:
             "agent_id": turn_model.agent_id,
             "agent_type": turn_model.agent_type,
             "metadata": turn_model.metadata or {},
-            "timestamp": turn_model.timestamp.isoformat(),
+            "timestamp": datetime_to_iso(turn_model.timestamp),
         }
-        self.redis.setex(cache_key, self.turn_ttl, json.dumps(turn_data))
+        json_str = safe_json_dumps(turn_data)
+        if json_str:
+            self.redis.setex(cache_key, self.turn_ttl, json_str)
 
         return TurnResponse(**{**turn_data, "timestamp": turn_model.timestamp})
 

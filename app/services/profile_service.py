@@ -5,7 +5,6 @@ Session Manager - Profile Service (v4.0 - Sync)
 
 from datetime import UTC, datetime
 
-from app.repositories.base import ProfileRepositoryInterface
 from app.repositories.mock import MockProfileRepository
 from app.schemas.common import CustomerProfile, ProfileAttribute, ProfileGetResponse
 
@@ -13,7 +12,7 @@ from app.schemas.common import CustomerProfile, ProfileAttribute, ProfileGetResp
 class ProfileService:
     """고객 프로파일 관리 서비스 (Sync)"""
 
-    def __init__(self, profile_repo: ProfileRepositoryInterface | None = None):
+    def __init__(self, profile_repo=None):
         self.profile_repo = profile_repo or MockProfileRepository()
 
     # ============ MA API ============

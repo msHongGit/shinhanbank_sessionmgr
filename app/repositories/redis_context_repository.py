@@ -7,10 +7,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.db.redis import RedisHelper, get_redis_client
-from app.repositories.base import ContextRepositoryInterface
 
 
-class RedisContextRepository(ContextRepositoryInterface):
+class RedisContextRepository:
     """Redis 기반 Context Repository (Sync)
 
     - context:{context_id} Hash에 Context 메타데이터 저장
@@ -29,7 +28,7 @@ class RedisContextRepository(ContextRepositoryInterface):
             "global_session_key": global_session_key,
             "user_id": user_id,
             "created_at": now.isoformat(),
-            "last_updated_at": now.isoformat(),
+            "updated_at": now.isoformat(),
         }
         self.helper.set_context(context_id, context)
         return context
@@ -44,7 +43,7 @@ class RedisContextRepository(ContextRepositoryInterface):
 
         context = self.helper.get_context(context_id)
         if context:
-            context["last_updated_at"] = datetime.now(UTC).isoformat()
+            context["updated_at"] = datetime.now(UTC).isoformat()
             self.helper.set_context(context_id, context)
 
     def get_turns(self, context_id: str) -> list[dict[str, Any]]:

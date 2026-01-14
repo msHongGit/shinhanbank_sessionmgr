@@ -96,8 +96,8 @@ def sample_global_session_key():
 
 
 @pytest.fixture
-def sample_local_session_key():
-    """샘플 Local 세션 키 (업무 Agent가 발급)"""
+def sample_agent_session_key():
+    """샘플 Agent 세션 키 (업무 Agent가 발급)"""
     return "lsess_transfer_001"
 
 
@@ -137,11 +137,11 @@ def sample_agw_session_create_request(sample_global_session_key):
 
 
 @pytest.fixture
-def sample_ma_local_register_request(sample_global_session_key, sample_local_session_key):
+def sample_ma_local_register_request(sample_global_session_key, sample_agent_session_key):
     """MA Local 세션 등록 요청"""
     return {
         "global_session_key": sample_global_session_key,
-        "local_session_key": sample_local_session_key,
+        "agent_session_key": sample_agent_session_key,
         "agent_id": "agent-transfer",
         "agent_type": "task",
     }

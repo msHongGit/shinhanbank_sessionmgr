@@ -16,7 +16,11 @@ from app.db.mariadb import Base
 
 
 class SessionModel(Base):
-    """세션 모델 (MariaDB)"""
+    """세션 모델 (MariaDB)
+
+    Redis에 저장되는 세션 정보를 MariaDB에 영구 저장하기 위한 모델.
+    멀티턴 컨텍스트(reference_information, turn_ids) 및 종료 정보 포함.
+    """
 
     __tablename__ = "sessions"
 
@@ -29,11 +33,24 @@ class SessionModel(Base):
     session_state = Column(String(20), nullable=False, default="start")
     task_queue_status = Column(String(20), default="null")
     subagent_status = Column(String(20), default="undefined")
-    current_subagent_id = Column(String(255))
-    session_metadata = Column("metadata", JSON)
+    action_owner = Column(String(255), comment="현재 액션 담당자")
+    
+    # 멀티턴 컨텍스트 (핵심 필드)
+    reference_information = Column(JSON, comment="멀티턴 컨텍스트 (conversation_history, current_intent, turn_count 등)")
+    turn_ids = Column(JSON, comment="누적 턴 ID 목록")
+    
+    # 이벤트/종료 정보
+    start_type = Column(String(50), comment="세션 진입 유형 (event_type, 예: ICON_ENTRY)")
+    ended_at = Column(TIMESTAMP(6), comment="세션 종료 시각")
+    close_reason = Column(String(100), comment="종료 사유")
+    final_summary = Column(String(1000), comment="최종 요약")
+    
+    # 기타 메타데이터 (JSON)
+    session_metadata = Column("metadata", JSON, comment="기타 메타데이터 (customer_profile, cushion_message, last_event, session_attributes 등)")
     profile = Column(JSON, comment="User profile attributes at session creation")
+    
     created_at = Column(TIMESTAMP(6), nullable=False, server_default=func.current_timestamp())
-    last_updated_at = Column(
+    updated_at = Column(
         TIMESTAMP(6),
         nullable=False,
         server_default=func.current_timestamp(),
@@ -41,7 +58,7 @@ class SessionModel(Base):
     )
     expires_at = Column(TIMESTAMP(6))
 
-    __table_args__ = (Index("idx_sessions_state_updated", "session_state", "last_updated_at"),)
+    __table_args__ = (Index("idx_sessions_state_updated", "session_state", "updated_at"),)
 
 
 # ============================================================================
@@ -104,7 +121,7 @@ class ContextModel(Base):
     turn_count = Column(Integer, nullable=False, default=0)
     context_metadata = Column("metadata", JSON)
     created_at = Column(TIMESTAMP(6), nullable=False, server_default=func.current_timestamp())
-    last_updated_at = Column(
+    updated_at = Column(
         TIMESTAMP(6),
         nullable=False,
         server_default=func.current_timestamp(),

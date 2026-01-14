@@ -222,6 +222,7 @@ async def update_session_state(
 async def close_session(
     global_session_key: str,
     close_reason: str | None = Query(None, description="종료 사유 (옵션)"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     service: SessionService = Depends(get_session_service),
 ):
     """
@@ -234,4 +235,4 @@ async def close_session(
         global_session_key=global_session_key,
         close_reason=close_reason,
     )
-    return service.close_session(request)
+    return service.close_session(request, background_tasks)

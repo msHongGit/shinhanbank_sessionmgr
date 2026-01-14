@@ -25,17 +25,17 @@ Session Manager의 **핵심 기능들은 TDD 방식으로 개발**됩니다:
 
 | 기능 | 서비스 | 테스트 파일 | 상태 |
 |------|--------|------------|------|
-| 세션 생성 | `session_service.create_session` | `test_agw_api.py` | ✅ 완료 |
-| 세션 조회 | `session_service.resolve_session` | `test_ma_api.py` | ✅ 완료 |
-| Local 세션 등록/조회 | `session_service.register_local_session` | `test_ma_api.py` | ✅ 완료 |
-| 세션 상태 업데이트 | `session_service.patch_session_state` | `test_ma_api.py` | ✅ 완료 |
-| 세션 종료 | `session_service.close_session` | `test_ma_api.py` | ✅ 완료 |
-| 대화 이력 조회 | `context_service.get_conversation_history` | `test_ma_api.py` | ✅ 완료 |
-| 대화 턴 저장 | `context_service.save_conversation_turn` | `test_ma_api.py` | ✅ 완료 |
-| 프로파일 조회 | `profile_service.get_profile` | `test_ma_api.py` | ⚠️ Mock |
-| 세션 목록 조회 | Portal API | `test_portal_api.py` | ✅ 완료 |
-| Context 삭제 | `context_service.delete_context` | `test_portal_api.py` | ✅ 완료 |
-| 프로파일 배치 업로드 | `profile_service.batch_upload` | `test_batch_api.py` | ⚠️ Mock |
+| 세션 생성 | `session_service.create_session` | `test_sessions_api.py` | ✅ 완료 |
+| 세션 조회 | `session_service.resolve_session` | `test_sessions_api.py` | ✅ 완료 |
+| 세션 상태 업데이트 | `session_service.patch_session_state` | `test_sessions_api.py` | ✅ 완료 |
+| 세션 종료 | `session_service.close_session` | `test_sessions_api.py` | ✅ 완료 |
+| 멀티턴 컨텍스트 저장/조회 | `session_service.patch_session_state` / `resolve_session` | `test_sessions_api.py` | ✅ 완료 |
+| SOL API 결과 저장 | `contexts.save_sol_api_result` | `test_context_api.py` | ✅ 완료 |
+| 세션 전체 정보 조회 | `contexts.get_session_full` | `test_context_api.py` | ✅ 완료 |
+| MariaDB 세션 저장 | `mariadb_session_repository` | `test_mariadb_session_repository.py` | ✅ 완료 |
+| MariaDB 통합 테스트 | `session_service` + MariaDB | `test_sessions_api.py` | ✅ 완료 |
+| E2E 세션 라이프사이클 | 전체 플로우 | `test_integration.py` | ✅ 완료 |
+| 프로파일 조회 | `profile_service.get_profile` | Mock 사용 | ⚠️ Mock |
 
 ---
 
@@ -73,63 +73,78 @@ Session Manager의 **핵심 기능들은 TDD 방식으로 개발**됩니다:
 
 ```
 tests/
-├── unit/                          # 단위 테스트 (TODO)
-│   ├── services/
-│   │   ├── test_session_service.py
-│   │   ├── test_context_service.py
-│   │   └── test_profile_service.py
-│   └── utils/
-│       └── test_id_generator.py
+├── test_sessions_api.py            # Unified Sessions API 테스트 (현재)
+│   ├── TestMultiTurnConversationHistory
+│   ├── TestHealthCheck
+│   ├── TestSessionCreate
+│   ├── TestSessionResolve
+│   ├── TestSessionStatePatch
+│   ├── TestSessionClose
+│   └── TestMariaDBIntegration
 │
-├── integration/                   # 통합 테스트 (TODO)
-│   ├── test_redis_integration.py
-│   └── test_postgres_integration.py
+├── test_context_api.py             # Contexts API 테스트 (현재)
+│   ├── test_save_sol_api_result_as_turn_metadata
+│   └── test_get_session_full_info
 │
-├── api/                           # API 테스트 (현재)
-│   ├── test_agw_api.py            # AGW API 테스트
-│   ├── test_ma_api.py             # MA API 테스트
-│   ├── test_portal_api.py         # Portal API 테스트
-│   └── test_batch_api.py          # Batch API 테스트
+├── test_integration.py             # E2E 통합 테스트 (현재)
+│   └── TestSessionLifecycle
 │
-├── e2e/                           # E2E 테스트 (TODO)
-│   ├── test_session_lifecycle.py
-│   └── test_multiuser_scenario.py
+├── test_mariadb_session_repository.py  # MariaDB Repository 테스트 (현재)
+│   └── TestMariaDBSessionRepository
 │
-├── conftest.py                    # pytest 공통 fixtures
-└── test_integration.py            # 통합 테스트
+├── conftest.py                     # pytest 공통 fixtures
+│
+└── unit/                           # 단위 테스트 (향후)
+    ├── services/
+    │   ├── test_session_service.py
+    │   └── test_profile_service.py
+    └── utils/
+        └── test_utils.py
 ```
 
 ---
 
 ## 🎭 모킹 전략
 
-### 1. **Redis 모킹**
+### 1. **Mock Repository 사용**
 
 ```python
 # conftest.py
 @pytest.fixture
-def mock_redis():
-    """Redis 클라이언트 모킹"""
-    from unittest.mock import MagicMock
+def client():
+    """FastAPI TestClient using real Redis for sessions/contexts and Mock profile data."""
+    from app.repositories.mock import MockProfileRepository
+    from app.services.session_service import SessionService
     
-    redis_mock = MagicMock()
-    redis_mock.hgetall.return_value = {}
-    redis_mock.hset.return_value = True
-    redis_mock.delete.return_value = 1
-    return redis_mock
-
-# 사용 예시
-@patch('app.services.session_service.get_redis_client')
-def test_create_session(self, mock_redis, client, agw_headers):
-    redis_mock = MagicMock()
-    redis_mock.hgetall.return_value = {}  # 기존 세션 없음
-    mock_redis.return_value = redis_mock
+    profile_repo = MockProfileRepository()
     
-    response = client.post("/api/v1/agw/sessions", ...)
-    assert response.status_code == 201
+    def override_session_service():
+        return SessionService(profile_repo=profile_repo)
+    
+    app.dependency_overrides[get_session_service] = override_session_service
+    client = TestClient(app)
+    yield client
+    app.dependency_overrides.clear()
 ```
 
-### 2. **PostgreSQL 모킹**
+**현재 모킹 전략**:
+- **Redis**: 실제 Redis 사용 (로컬/CI 환경)
+- **MariaDB**: 실제 MariaDB 사용 (연결 가능한 경우) 또는 스킵
+- **Profile Repository**: MockProfileRepository 사용 (테스트용 고정 데이터)
+
+### 2. **USE_MOCK_REDIS 플래그**
+
+```python
+# app/config.py
+USE_MOCK_REDIS = os.getenv("USE_MOCK_REDIS", "false").lower() == "true"
+
+# 테스트 환경에서 Mock Repository 사용
+if USE_MOCK_REDIS:
+    self.session_repo = MockSessionRepository()
+    self.context_repo = MockContextRepository()
+```
+
+### 3. **MariaDB 모킹 (필요 시)**
 
 ```python
 @pytest.fixture
@@ -142,180 +157,165 @@ def mock_db_session():
     return session
 ```
 
-### 3. **외부 서비스 모킹**
-
-```python
-@pytest.fixture
-def mock_profile_client():
-    """프로파일 서비스 모킹 (VDB 연동)"""
-    from unittest.mock import MagicMock
-    
-    client = MagicMock()
-    client.get_profile.return_value = {
-        "user_id": "user_001",
-        "segment": "VIP"
-    }
-    return client
-```
-
 ---
 
 ## 🔬 레이어별 테스트 전략
 
 ### 1. **API Layer Tests**
 
-#### A. AGW API 테스트
+#### A. Unified Sessions API 테스트
 
 ```python
-# tests/test_agw_api.py
-class TestAGWSessionCreate:
-    """AGW 세션 생성 테스트"""
+# tests/test_sessions_api.py
+class TestSessionCreate:
+    """세션 생성 테스트"""
     
-    @patch('app.services.session_service.get_redis_client')
-    def test_create_new_session(self, mock_redis, client, agw_headers):
-        """새 세션 생성 성공"""
-        redis_mock = MagicMock()
-        redis_mock.hgetall.return_value = {}
-        mock_redis.return_value = redis_mock
-        
+    def test_create_session_success_with_agw(self, client, agw_headers):
+        """AGW 헤더로 세션 생성 성공"""
         response = client.post(
-            "/api/v1/agw/sessions",
-            json={
-                "global_session_key": "gsess_001",
-                "user_id": "user_001",
-                "channel": "mobile"
-            },
+            "/api/v1/sessions",
+            json={"userId": "user_001"},
             headers=agw_headers
         )
         
         assert response.status_code == 201
         data = response.json()
-        assert data["is_new"] is True
-        assert "conversation_id" in data
-        assert "context_id" in data
+        assert "global_session_key" in data
+        assert data["global_session_key"].startswith("gsess_")
     
-    @patch('app.services.session_service.get_redis_client')
-    def test_return_existing_session(self, mock_redis, client, agw_headers):
-        """기존 유효 세션 반환"""
-        redis_mock = MagicMock()
-        redis_mock.hgetall.return_value = {
-            "global_session_key": "gsess_001",
-            "conversation_id": "conv_001",
-            "context_id": "ctx_001",
-            "session_state": "talk",
-            "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat()
-        }
-        mock_redis.return_value = redis_mock
-        
-        response = client.post("/api/v1/agw/sessions", ...)
-        
+    def test_create_session_without_profile(self, client, agw_headers):
+        """프로파일 없이 세션 생성"""
+        response = client.post(
+            "/api/v1/sessions",
+            json={"userId": "user_no_profile"},
+            headers=agw_headers
+        )
         assert response.status_code == 201
-        assert response.json()["is_new"] is False
-    
-    def test_unauthorized_without_api_key(self, client):
-        """API Key 없이 호출 시 401"""
-        response = client.post("/api/v1/agw/sessions", json={...})
-        assert response.status_code == 401
-    
-    def test_forbidden_with_wrong_api_key(self, client, ma_headers):
-        """다른 호출자 API Key로 호출 시 403"""
-        response = client.post("/api/v1/agw/sessions", json={...}, headers=ma_headers)
-        assert response.status_code == 403
-```
 
-#### B. MA API 테스트
 
-```python
-# tests/test_ma_api.py
-class TestMASessionResolve:
-    """MA 세션 조회 테스트"""
+class TestSessionResolve:
+    """세션 조회 테스트"""
     
-    @patch('app.services.session_service.get_redis_client')
-    def test_resolve_session_success(self, mock_redis, client, ma_headers):
+    def test_resolve_session_success(self, client, agw_headers, ma_headers):
         """세션 조회 성공"""
-        # Given
-        redis_mock = MagicMock()
-        redis_mock.hgetall.return_value = {
-            "global_session_key": "gsess_001",
-            "session_state": "talk",
-            "subagent_status": "continue"
-        }
-        redis_mock.zcard.return_value = 2  # Task Queue 있음
-        mock_redis.return_value = redis_mock
+        # Given: 세션 생성
+        create_resp = client.post("/api/v1/sessions", json={"userId": "user_001"}, headers=agw_headers)
+        global_session_key = create_resp.json()["global_session_key"]
         
-        # When
+        # When: 세션 조회
         response = client.get(
-            "/api/v1/ma/sessions/resolve",
-            params={"global_session_key": "gsess_001"},
+            f"/api/v1/sessions/{global_session_key}",
             headers=ma_headers
         )
         
         # Then
         assert response.status_code == 200
         data = response.json()
-        assert data["task_queue_status"] == "notnull"
-        assert data["subagent_status"] == "continue"
+        assert data["global_session_key"] == global_session_key
+        assert data["session_state"] == "start"
     
-    @patch('app.services.session_service.get_redis_client')
-    def test_resolve_session_not_found(self, mock_redis, client, ma_headers):
+    def test_resolve_session_not_found(self, client, ma_headers):
         """세션 없음 → 404"""
-        redis_mock = MagicMock()
-        redis_mock.hgetall.return_value = {}
-        mock_redis.return_value = redis_mock
-        
         response = client.get(
-            "/api/v1/ma/sessions/resolve",
-            params={"global_session_key": "gsess_invalid"},
+            "/api/v1/sessions/gsess_invalid",
             headers=ma_headers
         )
-        
         assert response.status_code == 404
 
 
-class TestMALocalSession:
-    """MA Local 세션 테스트"""
+class TestSessionStatePatch:
+    """세션 상태 업데이트 테스트"""
     
-    def test_register_local_session(self, ...):
-        """Local 세션 등록"""
-        pass
-    
-    def test_get_local_session_exists(self, ...):
-        """Local 세션 조회 - 존재"""
-        pass
-    
-    def test_get_local_session_not_exists(self, ...):
-        """Local 세션 조회 - 없음"""
-        pass
-
-
-class TestMASessionState:
-    """MA 세션 상태 업데이트 테스트"""
-    
-    def test_patch_session_state(self, ...):
+    def test_patch_session_state(self, client, agw_headers, ma_headers):
         """세션 상태 업데이트 성공"""
+        # Given: 세션 생성
+        create_resp = client.post("/api/v1/sessions", json={"userId": "user_001"}, headers=agw_headers)
+        global_session_key = create_resp.json()["global_session_key"]
+        
+        # When: 상태 업데이트
+        patch_req = {
+            "global_session_key": global_session_key,
+            "turn_id": "turn_001",
+            "session_state": "talk",
+            "state_patch": {
+                "subagent_status": "continue",
+                "reference_information": {
+                    "conversation_history": [{"role": "user", "content": "안녕"}],
+                    "current_intent": "인사"
+                }
+            }
+        }
+        response = client.patch(
+            f"/api/v1/sessions/{global_session_key}/state",
+            json=patch_req,
+            headers=ma_headers
+        )
+        
+        # Then
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+
+class TestMultiTurnConversationHistory:
+    """멀티턴 대화 이력 테스트"""
+    
+    def test_multiturn_conversation_history_patch_and_get(self, client, agw_headers, ma_headers):
+        """PATCH로 conversation_history 저장 후 GET에서 조회"""
+        # 세션 생성 → PATCH로 대화 이력 저장 → GET으로 조회 검증
         pass
     
-    def test_patch_session_not_found(self, ...):
-        """없는 세션 업데이트 → 404"""
+    def test_multiturn_turn_ids_accumulate(self, client, agw_headers, ma_headers):
+        """turn_ids 누적 검증"""
         pass
 
 
-class TestMAContext:
-    """MA 대화 이력 테스트"""
+class TestMariaDBIntegration:
+    """MariaDB 통합 테스트"""
     
-    def test_get_conversation_history(self, ...):
-        """대화 이력 조회"""
+    def test_session_create_saves_to_mariadb(self, client, agw_headers):
+        """세션 생성 시 MariaDB에 저장되는지 검증"""
         pass
     
-    def test_save_conversation_turn(self, ...):
-        """대화 턴 저장"""
+    def test_session_patch_saves_to_mariadb(self, client, agw_headers, ma_headers):
+        """세션 업데이트 시 MariaDB에 저장되는지 검증"""
         pass
+```
+
+#### B. Contexts API 테스트
+
+```python
+# tests/test_context_api.py
+def test_save_sol_api_result_as_turn_metadata(client, agw_headers, ma_headers):
+    """SOL API 결과를 턴 메타데이터로 저장"""
+    # 1. 세션 생성
+    session_resp = client.post("/api/v1/sessions", json={"userId": "user_001"}, headers=agw_headers)
+    global_session_key = session_resp.json()["global_session_key"]
+    
+    # 2. SOL API 결과 저장
+    response = client.post(
+        "/api/v1/contexts/turn-results",
+        json={
+            "sessionId": global_session_key,
+            "turnId": "turn_001",
+            "agent": "dbs_caller",
+            "transactionResult": [{"trxCd": "TRX001", "responseData": {}}]
+        }
+    )
+    
+    assert response.status_code == 201
+    assert response.json()["turn_id"] == "turn_001"
+
+
+def test_get_session_full_info(client, agw_headers, ma_headers):
+    """세션 전체 정보 조회 (세션 + 턴 목록)"""
+    # 세션 생성 → 턴 저장 → 전체 정보 조회 검증
+    pass
 ```
 
 ### 2. **Service Layer Tests**
 
 ```python
-# tests/unit/services/test_session_service.py
+# tests/unit/services/test_session_service.py (향후)
 class TestSessionService:
     """SessionService 단위 테스트"""
     
@@ -323,12 +323,12 @@ class TestSessionService:
         """ID 생성 포맷 검증"""
         service = SessionService()
         
-        conv_id = service._generate_id("conv")
+        global_key = service._generate_id("gsess")
         ctx_id = service._generate_id("ctx")
         
-        assert conv_id.startswith("conv_")
+        assert global_key.startswith("gsess_")
         assert ctx_id.startswith("ctx_")
-        assert len(conv_id) > 20  # timestamp + uuid
+        assert len(global_key) > 20  # timestamp + uuid
     
     def test_session_state_transition(self):
         """세션 상태 전이 검증"""
@@ -336,97 +336,137 @@ class TestSessionService:
         # START → END 직접 전이 가능
         pass
     
-    def test_subagent_status_values(self):
-        """SubAgent 상태값 검증"""
-        valid_statuses = ["undefined", "continue", "complete", "error"]
-        # 각 상태값이 올바르게 처리되는지 검증
+    def test_reference_information_validation(self):
+        """reference_information 타입 검증"""
+        # conversation_history는 list여야 함
+        # turn_count는 int여야 함
         pass
 ```
 
 ### 3. **Integration Tests**
 
 ```python
-# tests/integration/test_redis_integration.py
-class TestRedisIntegration:
-    """Redis 연동 테스트"""
+# tests/test_integration.py
+class TestSessionLifecycle:
+    """세션 전체 라이프사이클 통합 테스트"""
     
-    @pytest.fixture
-    def redis_client(self):
-        """실제 Redis 연결 (테스트 DB)"""
-        import redis
-        client = redis.Redis(host='localhost', port=6379, db=15)
-        yield client
-        client.flushdb()  # 테스트 후 정리
+    def test_full_session_lifecycle(self, client, agw_headers, ma_headers):
+        """세션 생성 → 조회 → 업데이트 → 종료"""
+        # 1. 세션 생성
+        create_resp = client.post("/api/v1/sessions", json={"userId": "user_001"}, headers=agw_headers)
+        global_session_key = create_resp.json()["global_session_key"]
+        
+        # 2. 세션 조회
+        resolve_resp = client.get(f"/api/v1/sessions/{global_session_key}", headers=ma_headers)
+        assert resolve_resp.status_code == 200
+        
+        # 3. 세션 상태 업데이트
+        patch_resp = client.patch(
+            f"/api/v1/sessions/{global_session_key}/state",
+            json={"global_session_key": global_session_key, "session_state": "talk"},
+            headers=ma_headers
+        )
+        assert patch_resp.status_code == 200
+        
+        # 4. 세션 종료
+        close_resp = client.delete(f"/api/v1/sessions/{global_session_key}", headers=ma_headers)
+        assert close_resp.status_code == 200
+
+
+# tests/test_mariadb_session_repository.py
+class TestMariaDBSessionRepository:
+    """MariaDB Repository 통합 테스트"""
     
-    def test_session_crud(self, redis_client):
-        """세션 CRUD 통합 테스트"""
-        helper = RedisHelper(redis_client)
-        
-        # Create
-        helper.set_session("gsess_001", {"user_id": "user_001"})
-        
-        # Read
-        session = helper.get_session("gsess_001")
-        assert session["user_id"] == "user_001"
-        
-        # Delete
-        helper.delete_session("gsess_001")
-        assert helper.get_session("gsess_001") == {}
+    def test_create_session(self, mariadb_repo, sample_session_data, db_session):
+        """세션 생성 및 MariaDB 저장"""
+        session_model = mariadb_repo.create_or_update(
+            global_session_key=sample_session_data["global_session_key"],
+            session_data=sample_session_data,
+        )
+        assert session_model is not None
+        assert session_model.global_session_key == sample_session_data["global_session_key"]
+    
+    def test_get_session(self, mariadb_repo, sample_session_data):
+        """MariaDB에서 세션 조회"""
+        pass
 ```
 
 ### 4. **E2E Tests**
 
 ```python
-# tests/e2e/test_session_lifecycle.py
+# tests/test_integration.py
 class TestSessionLifecycle:
-    """세션 전체 라이프사이클 테스트"""
+    """세션 전체 라이프사이클 E2E 테스트"""
     
-    @patch('app.db.redis.get_redis_client')
-    def test_complete_session_flow(self, mock_redis, client, agw_headers, ma_headers):
+    def test_full_session_lifecycle(self, client, agw_headers, ma_headers):
         """
         전체 세션 플로우:
-        1. AGW: 세션 생성
-        2. MA: 세션 조회
-        3. MA: Local 세션 등록
-        4. MA: 대화 턴 저장
-        5. MA: 세션 상태 업데이트
-        6. MA: 세션 종료
+        1. 세션 생성 (POST /api/v1/sessions)
+        2. 세션 조회 (GET /api/v1/sessions/{key})
+        3. 세션 상태 업데이트 (PATCH /api/v1/sessions/{key}/state)
+        4. SOL API 결과 저장 (POST /api/v1/contexts/turn-results)
+        5. 세션 전체 정보 조회 (GET /api/v1/contexts/sessions/{key}/full)
+        6. 세션 종료 (DELETE /api/v1/sessions/{key})
         """
-        # 1. AGW: 세션 생성
+        # 1. 세션 생성
         create_resp = client.post(
-            "/api/v1/agw/sessions",
-            json={"global_session_key": "gsess_e2e", "user_id": "user_001"},
+            "/api/v1/sessions",
+            json={"userId": "user_e2e_001"},
             headers=agw_headers
         )
         assert create_resp.status_code == 201
-        session_data = create_resp.json()
+        global_session_key = create_resp.json()["global_session_key"]
         
-        # 2. MA: 세션 조회
+        # 2. 세션 조회
         resolve_resp = client.get(
-            "/api/v1/ma/sessions/resolve",
-            params={"global_session_key": "gsess_e2e"},
+            f"/api/v1/sessions/{global_session_key}",
             headers=ma_headers
         )
         assert resolve_resp.status_code == 200
         
-        # 3. MA: Local 세션 등록
-        local_resp = client.post(
-            "/api/v1/ma/sessions/local",
+        # 3. 세션 상태 업데이트
+        patch_resp = client.patch(
+            f"/api/v1/sessions/{global_session_key}/state",
             json={
-                "global_session_key": "gsess_e2e",
-                "local_session_key": "lsess_001",
-                "agent_id": "agent-transfer"
+                "global_session_key": global_session_key,
+                "turn_id": "turn_001",
+                "session_state": "talk",
+                "state_patch": {
+                    "reference_information": {
+                        "conversation_history": [{"role": "user", "content": "안녕"}]
+                    }
+                }
             },
             headers=ma_headers
         )
-        assert local_resp.status_code == 201
+        assert patch_resp.status_code == 200
         
-        # ... 나머지 플로우
-    
-    def test_multiuser_isolation(self, client, ...):
-        """멀티유저 세션 격리 테스트"""
-        # 사용자 A, B의 세션이 독립적으로 관리되는지 검증
-        pass
+        # 4. SOL API 결과 저장
+        sol_resp = client.post(
+            "/api/v1/contexts/turn-results",
+            json={
+                "sessionId": global_session_key,
+                "turnId": "turn_001",
+                "agent": "dbs_caller"
+            }
+        )
+        assert sol_resp.status_code == 201
+        
+        # 5. 세션 전체 정보 조회
+        full_resp = client.get(
+            f"/api/v1/contexts/sessions/{global_session_key}/full"
+        )
+        assert full_resp.status_code == 200
+        assert "session" in full_resp.json()
+        assert "turns" in full_resp.json()
+        
+        # 6. 세션 종료
+        close_resp = client.delete(
+            f"/api/v1/sessions/{global_session_key}",
+            params={"close_reason": "test_completed"},
+            headers=ma_headers
+        )
+        assert close_resp.status_code == 200
 ```
 
 ---
@@ -484,23 +524,27 @@ pytest -m "not slow"
 #### Step 1: RED - 실패하는 테스트 작성
 
 ```python
-# tests/test_ma_api.py
-def test_01_red_get_session_metadata():
+# tests/test_sessions_api.py
+def test_01_red_session_ping():
     """
-    요구사항: 세션 메타데이터 조회 API
+    요구사항: 세션 생존 확인 및 TTL 연장 API
     
     RED 단계: 이 테스트는 실패해야 함 (API 미구현)
     """
+    # Given: 세션 생성
+    create_resp = client.post("/api/v1/sessions", json={"userId": "user_001"}, headers=agw_headers)
+    global_session_key = create_resp.json()["global_session_key"]
+    
+    # When: Ping 호출
     response = client.get(
-        "/api/v1/ma/sessions/metadata",
-        params={"global_session_key": "gsess_001"},
-        headers=ma_headers
+        f"/api/v1/sessions/{global_session_key}/ping"
     )
     
+    # Then
     assert response.status_code == 200
     data = response.json()
-    assert "created_at" in data
-    assert "updated_at" in data
+    assert "is_alive" in data
+    assert data["is_alive"] is True
 ```
 
 **테스트 실행**: ❌ 실패 (404 Not Found)
@@ -508,16 +552,10 @@ def test_01_red_get_session_metadata():
 #### Step 2: GREEN - 최소한의 코드로 통과
 
 ```python
-# app/api/v1/ma/sessions.py
-@router.get("/metadata")
-async def get_session_metadata(
-    global_session_key: str,
-    api_key: str = Depends(verify_ma_api_key)
-):
-    return {
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat()
-    }
+# app/api/v1/sessions.py
+@router.get("/{global_session_key}/ping")
+async def ping_session(global_session_key: str):
+    return {"is_alive": True, "expires_at": datetime.now().isoformat()}
 ```
 
 **테스트 실행**: ✅ 통과
@@ -525,15 +563,14 @@ async def get_session_metadata(
 #### Step 3: REFACTOR - 코드 개선
 
 ```python
-# app/api/v1/ma/sessions.py
-@router.get("/metadata", response_model=SessionMetadataResponse)
-async def get_session_metadata(
+# app/api/v1/sessions.py
+@router.get("/{global_session_key}/ping", response_model=SessionPingResponse)
+async def ping_session(
     global_session_key: str,
-    api_key: str = Depends(verify_ma_api_key),
-    session_service: SessionService = Depends(get_session_service)
+    service: SessionService = Depends(get_session_service),
 ):
-    """세션 메타데이터 조회"""
-    return session_service.get_session_metadata(global_session_key)
+    """세션 생존 확인 및 TTL 연장"""
+    return service.ping_session(global_session_key)
 ```
 
 **테스트 실행**: ✅ 모든 테스트 통과
@@ -598,9 +635,9 @@ jobs:
 | 레이어 | 목표 | 현재 |
 |--------|------|------|
 | Unit Tests | 80%+ | ⚠️ TODO |
-| Integration Tests | 60%+ | ⚠️ TODO |
-| API Tests | 90%+ | ✅ ~85% |
-| E2E Tests | 주요 시나리오 100% | ⚠️ TODO |
+| Integration Tests | 60%+ | ✅ ~70% (test_integration.py, test_mariadb_session_repository.py) |
+| API Tests | 90%+ | ✅ ~90% (test_sessions_api.py, test_context_api.py) |
+| E2E Tests | 주요 시나리오 100% | ✅ 완료 (test_integration.py) |
 
 ---
 

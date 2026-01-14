@@ -8,10 +8,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from app.repositories.base import SessionRepositoryInterface
 
-
-class MockSessionRepository(SessionRepositoryInterface):
+class MockSessionRepository:
     """Mock 세션 Repository (Singleton, Sync)"""
 
     _instance = None
@@ -111,7 +109,7 @@ class MockSessionRepository(SessionRepositoryInterface):
         session["updated_at"] = now.isoformat()
         return session
 
-    def set_local_mapping(self, global_session_key: str, agent_id: str, local_session_key: str, agent_type: str) -> str:
+    def set_local_mapping(self, global_session_key: str, agent_id: str, agent_session_key: str, agent_type: str) -> str:
         """Global↔Local 세션 매핑 등록"""
         mapping_key = f"{global_session_key}:{agent_id}"
         mapping_id = self._generate_id("map")
@@ -119,7 +117,7 @@ class MockSessionRepository(SessionRepositoryInterface):
         self._local_mappings[mapping_key] = {
             "mapping_id": mapping_id,
             "global_session_key": global_session_key,
-            "agent_session_key": local_session_key,  # API 스키마에서 agent_session_key로 사용
+            "agent_session_key": agent_session_key,
             "agent_id": agent_id,
             "agent_type": agent_type,
             "created_at": datetime.now(UTC).isoformat(),

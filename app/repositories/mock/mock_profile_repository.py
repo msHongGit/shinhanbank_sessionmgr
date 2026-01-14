@@ -9,11 +9,10 @@ ma_session은 참고용 도메인 모델이므로,
 from datetime import UTC, datetime
 from typing import Any
 
-from app.repositories.base import ProfileRepositoryInterface
 from app.schemas.common import CustomerProfile, ProfileAttribute
 
 
-class MockProfileRepository(ProfileRepositoryInterface):
+class MockProfileRepository:
     """Mock Profile Repository (Singleton, Sync)"""
 
     _instance = None

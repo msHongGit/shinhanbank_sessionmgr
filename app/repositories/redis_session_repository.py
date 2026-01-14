@@ -9,10 +9,9 @@ from typing import Any
 
 from app.config import SESSION_CACHE_TTL, SESSION_MAP_TTL
 from app.db.redis import RedisHelper, get_redis_client
-from app.repositories.base import SessionRepositoryInterface
 
 
-class RedisSessionRepository(SessionRepositoryInterface):
+class RedisSessionRepository:
     """Redis 기반 세션 Repository (Sync)
 
     - session:{global_session_key} 형태의 Hash에 세션 정보를 저장
@@ -46,7 +45,6 @@ class RedisSessionRepository(SessionRepositoryInterface):
         expires_at = now + timedelta(seconds=SESSION_CACHE_TTL)
 
         session: dict[str, Any] = {
-            "session_id": global_session_key,
             "global_session_key": global_session_key,
             "user_id": user_id,
             "channel": channel,
@@ -111,12 +109,12 @@ class RedisSessionRepository(SessionRepositoryInterface):
 
     # ============ Global↔Local Session Mapping ============
 
-    def set_local_mapping(self, global_session_key: str, agent_id: str, local_session_key: str, agent_type: str) -> str:
+    def set_local_mapping(self, global_session_key: str, agent_id: str, agent_session_key: str, agent_type: str) -> str:
         """Global↔Local 세션 매핑 등록"""
         return self.helper.set_session_mapping(
             global_session_key=global_session_key,
             agent_id=agent_id,
-            local_session_key=local_session_key,
+            agent_session_key=agent_session_key,
             agent_type=agent_type,
             ttl=SESSION_MAP_TTL,
         )
