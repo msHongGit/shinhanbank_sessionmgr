@@ -32,8 +32,6 @@ Session Manager의 **핵심 기능들은 TDD 방식으로 개발**됩니다:
 | 멀티턴 컨텍스트 저장/조회 | `session_service.patch_session_state` / `resolve_session` | `test_sessions_api.py` | ✅ 완료 |
 | SOL API 결과 저장 | `contexts.save_sol_api_result` | `test_context_api.py` | ✅ 완료 |
 | 세션 전체 정보 조회 | `contexts.get_session_full` | `test_context_api.py` | ✅ 완료 |
-| MariaDB 세션 저장 | `mariadb_session_repository` | `test_mariadb_session_repository.py` | ✅ 완료 |
-| MariaDB 통합 테스트 | `session_service` + MariaDB | `test_sessions_api.py` | ✅ 완료 |
 | E2E 세션 라이프사이클 | 전체 플로우 | `test_integration.py` | ✅ 완료 |
 | 프로파일 조회 | `profile_service.get_profile` | Mock 사용 | ⚠️ Mock |
 
@@ -79,8 +77,7 @@ tests/
 │   ├── TestSessionCreate
 │   ├── TestSessionResolve
 │   ├── TestSessionStatePatch
-│   ├── TestSessionClose
-│   └── TestMariaDBIntegration
+│   └── TestSessionClose
 │
 ├── test_context_api.py             # Contexts API 테스트 (현재)
 │   ├── test_save_sol_api_result_as_turn_metadata
@@ -88,9 +85,6 @@ tests/
 │
 ├── test_integration.py             # E2E 통합 테스트 (현재)
 │   └── TestSessionLifecycle
-│
-├── test_mariadb_session_repository.py  # MariaDB Repository 테스트 (현재)
-│   └── TestMariaDBSessionRepository
 │
 ├── conftest.py                     # pytest 공통 fixtures
 │
@@ -129,33 +123,7 @@ def client():
 
 **현재 모킹 전략**:
 - **Redis**: 실제 Redis 사용 (로컬/CI 환경)
-- **MariaDB**: 실제 MariaDB 사용 (연결 가능한 경우) 또는 스킵
 - **Profile Repository**: MockProfileRepository 사용 (테스트용 고정 데이터)
-
-### 2. **USE_MOCK_REDIS 플래그**
-
-```python
-# app/config.py
-USE_MOCK_REDIS = os.getenv("USE_MOCK_REDIS", "false").lower() == "true"
-
-# 테스트 환경에서 Mock Repository 사용
-if USE_MOCK_REDIS:
-    self.session_repo = MockSessionRepository()
-    self.context_repo = MockContextRepository()
-```
-
-### 3. **MariaDB 모킹 (필요 시)**
-
-```python
-@pytest.fixture
-def mock_db_session():
-    """SQLAlchemy 세션 모킹"""
-    from unittest.mock import MagicMock
-    
-    session = MagicMock()
-    session.query.return_value.filter.return_value.first.return_value = None
-    return session
-```
 
 ---
 
@@ -267,18 +235,6 @@ class TestMultiTurnConversationHistory:
     def test_multiturn_turn_ids_accumulate(self, client, agw_headers, ma_headers):
         """turn_ids 누적 검증"""
         pass
-
-
-class TestMariaDBIntegration:
-    """MariaDB 통합 테스트"""
-    
-    def test_session_create_saves_to_mariadb(self, client, agw_headers):
-        """세션 생성 시 MariaDB에 저장되는지 검증"""
-        pass
-    
-    def test_session_patch_saves_to_mariadb(self, client, agw_headers, ma_headers):
-        """세션 업데이트 시 MariaDB에 저장되는지 검증"""
-        pass
 ```
 
 #### B. Contexts API 테스트
@@ -371,24 +327,6 @@ class TestSessionLifecycle:
         # 4. 세션 종료
         close_resp = client.delete(f"/api/v1/sessions/{global_session_key}", headers=ma_headers)
         assert close_resp.status_code == 200
-
-
-# tests/test_mariadb_session_repository.py
-class TestMariaDBSessionRepository:
-    """MariaDB Repository 통합 테스트"""
-    
-    def test_create_session(self, mariadb_repo, sample_session_data, db_session):
-        """세션 생성 및 MariaDB 저장"""
-        session_model = mariadb_repo.create_or_update(
-            global_session_key=sample_session_data["global_session_key"],
-            session_data=sample_session_data,
-        )
-        assert session_model is not None
-        assert session_model.global_session_key == sample_session_data["global_session_key"]
-    
-    def test_get_session(self, mariadb_repo, sample_session_data):
-        """MariaDB에서 세션 조회"""
-        pass
 ```
 
 ### 4. **E2E Tests**
@@ -635,7 +573,7 @@ jobs:
 | 레이어 | 목표 | 현재 |
 |--------|------|------|
 | Unit Tests | 80%+ | ⚠️ TODO |
-| Integration Tests | 60%+ | ✅ ~70% (test_integration.py, test_mariadb_session_repository.py) |
+| Integration Tests | 60%+ | ✅ ~70% (test_integration.py) |
 | API Tests | 90%+ | ✅ ~90% (test_sessions_api.py, test_context_api.py) |
 | E2E Tests | 주요 시나리오 100% | ✅ 완료 (test_integration.py) |
 
@@ -688,8 +626,7 @@ def sample_session_data():
         "global_session_key": "gsess_001",
         "user_id": "user_001",
         "session_state": "talk",
-        "conversation_id": "conv_001",
-        "context_id": "ctx_001"
+        "conversation_id": "conv_001"
     }
 
 # 테스트에서 재사용

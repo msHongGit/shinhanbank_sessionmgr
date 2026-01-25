@@ -1,11 +1,12 @@
-# Session Manager v4.0 - Sprint 4
+# Session Manager v5.0 - Sprint 5
 
 은행 AI Agent 시스템의 세션/컨텍스트 관리 서비스
 
 > **Sprint 1**: 설계 및 아키텍처 정의  
 > **Sprint 2**: Mock Repository 기반 API 검증  
 > **Sprint 3**: Unified Sessions + SOL 연동 결과 메타데이터(Contexts/Turns), Redis 기반 세션/컨텍스트 관리  
-> **Sprint 4**: MariaDB 영구 저장소 통합, 필드명 통일, Context DB 구축
+> **Sprint 4**: MariaDB 영구 저장소 통합, 필드명 통일, Context DB 구축  
+> **Sprint 5**: Redis 전용 전환 (MariaDB 제거, Mock 제거, Profile만 Mock 유지)
 
 ## 🎯 주요 기능
 
@@ -27,8 +28,8 @@
 - **조회 시 반환**: GET /sessions/{key} 응답에 customer_profile 필드 포함
 
 ### SOL API 연동 로그
-- **턴 메타데이터 저장**: `POST /contexts/turn-results` 로 SOL API 호출 결과 저장
-- **세션 전체 조회**: `GET /contexts/sessions/{key}/full` 로 세션 + 턴 목록 한 번에 확인
+- **턴 메타데이터 저장**: `POST /api/v1/sessions/{global_session_key}/api-results` 로 SOL API 호출 결과 저장
+- **세션 전체 조회**: `GET /api/v1/sessions/{global_session_key}/full` 로 세션 + 턴 목록 한 번에 확인
 
 ## 🏗️ 아키텍처
 
@@ -37,19 +38,15 @@
 │                        Session Manager                      │
 ├─────────────────────────────────────────────────────────────┤
 │  API Layer (FastAPI)                                        │
-│    ├─ Unified Sessions API : 세션 생성/조회/상태변경/종료     │
-│    └─ Contexts API        : SOL 실시간 API 연동 결과 메타데이터 저장 │
+│    └─ Unified Sessions API : 세션 생성/조회/상태변경/종료/SOL API 결과 저장/전체 조회 │
 ├─────────────────────────────────────────────────────────────┤
 │  Service Layer                                               │
 │    ├─ SessionService  : 세션/Agent 세션 매핑 비즈니스 로직   │
 │    └─ ProfileService  : (향후) 고객 프로파일 조회/연결        │
 ├─────────────────────────────────────────────────────────────┤
 │  Repository Layer                                            │
-│    ├─ RedisSessionRepository   : Redis 기반 세션/매핑 저장소 (동기) │
-│    ├─ RedisContextRepository   : Redis 기반 컨텍스트/턴 저장소 (동기) │
-│    ├─ MariaDBSessionRepository : MariaDB 기반 세션 저장소 (비동기) │
-│    ├─ MariaDBContextRepository : MariaDB 기반 컨텍스트/턴 저장소 (비동기) │
-│    └─ Mock*Repository          : 테스트/개발용 Mock 구현체    │
+│    ├─ RedisSessionRepository   : Redis 기반 세션/매핑/턴 저장소 │
+│    └─ MockProfileRepository    : 프로파일 Mock 구현체 (개발/테스트용) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -59,23 +56,17 @@
 app/
    api/
       v1/
-         sessions.py      # Unified Sessions API (생성/조회/업데이트/종료/Ping)
-         contexts.py      # SOL API 결과 저장 + 세션 전체 정보 조회
+         sessions.py      # Unified Sessions API (생성/조회/업데이트/종료/Ping/SOL API 결과 저장/전체 조회)
          router.py        # v1 라우터 집합
    services/            # 비즈니스 로직
       session_service.py   # 세션 관리 핵심 로직 (멀티턴 컨텍스트 포함)
       profile_service.py   # 프로파일 조회 (향후 확장용)
    repositories/        # Repository 구현체 (Duck Typing 방식)
-      redis_session_repository.py     # Redis 기반 세션 저장소
-      redis_context_repository.py     # Redis 기반 컨텍스트/턴 저장소
-      mariadb_session_repository.py    # MariaDB 기반 세션 저장소
-      mariadb_context_repository.py    # MariaDB 기반 컨텍스트/턴 저장소
-      hybrid_context_repository.py     # Hybrid 저장소 (미사용)
-      mock/                            # 테스트/개발용 Mock Repository
+      redis_session_repository.py     # Redis 기반 세션/턴 저장소
+      mock/                            # Mock Repository
+         mock_profile_repository.py   # 프로파일 Mock 구현체 (개발/테스트용)
    schemas/             # Pydantic 스키마
-      common.py         # 세션 요청/응답 스키마
-      contexts.py       # 컨텍스트/턴 스키마
-   models/              # SQLAlchemy 모델 (MariaDB용)
+      common.py         # 세션/턴 요청/응답 스키마 (통합)
    core/                # 예외, 인증, 정책, 유틸리티
       exceptions.py     # 커스텀 예외
       utils.py          # 공통 유틸리티 함수 (JSON 파싱, datetime 변환)
@@ -104,7 +95,6 @@ uv sync --all-extras
 
 # 환경변수 설정 (app/config.env 참고)
 # - REDIS_URL: Redis 연결 URL (필수)
-# - USE_MOCK_REDIS: Redis 대신 Mock Repository 사용 (테스트용, 기본 false)
 ```
 
 ### 2. 서버 실행
@@ -158,25 +148,13 @@ uv run ruff check --fix .
 
 ### 저장소
 
-**Redis** (동기 캐시 저장소)
-- 세션/컨텍스트/턴 메타데이터 즉시 저장 (동기)
+**Redis** (세션/컨텍스트 저장소)
+- 세션/턴 메타데이터 저장
 - 기본 TTL 설정 (환경변수로 조정 가능):
-  - `SESSION_CACHE_TTL=600` (세션 스냅샷)
-  - `SESSION_MAP_TTL=600` (Agent 세션 매핑)
+  - `SESSION_CACHE_TTL=300` (세션 스냅샷, 기본값 300초)
 - Redis 키 구조:
-  - `session:{global_session_key}` - 세션 해시
-  - `session_map:{global_session_key}:{agent_id}` - Agent 세션 매핑
-  - `context:{context_id}` - 컨텍스트 메타데이터
-  - `context_turns:{context_id}` - 턴 목록 (리스트)
-
-**MariaDB** (비동기 영구 저장소)
-- 세션/컨텍스트/턴 메타데이터 영구 저장 (비동기)
-- BackgroundTasks를 통해 API 응답 후 저장
-- 저장 내용:
-  - `sessions` 테이블: 세션 메타데이터
-  - `agent_sessions` 테이블: Agent 세션 매핑
-  - `contexts` 테이블: 컨텍스트 메타데이터
-  - `conversation_turns` 테이블: 턴 메타데이터
+  - `session:{global_session_key}` - 세션 해시 (Agent 매핑 포함)
+  - `turns:{global_session_key}` - 턴 목록 (리스트)
 
 ### 환경변수 설정
 
@@ -186,31 +164,11 @@ uv run ruff check --fix .
 # Redis 연결 (필수)
 REDIS_URL=rediss://default:password@host:port/0
 
-# MariaDB 연결 (필수, Sprint 4+)
-MARIADB_HOST=my-mariadb.mariadb.svc.cluster.local
-MARIADB_PORT=3306
-MARIADB_USER=root
-MARIADB_PASSWORD=ChangeMe!
-MARIADB_DATABASE=session_manager
-
-# Mock 모드 (테스트/로컬용, 기본 false)
-USE_MOCK_REDIS=false
-
-# MariaDB 사용 여부 (기본 true)
-USE_MARIADB=true
-
-# MariaDB 연결 풀 설정
-MARIADB_POOL_SIZE=10
-MARIADB_MAX_OVERFLOW=20
-MARIADB_POOL_RECYCLE=3600
-MARIADB_ECHO=false
-
 # API Key 인증 (기본 false)
 ENABLE_API_KEY_AUTH=false
 
-# TTL 설정 (초 단위, 기본 600)
-SESSION_CACHE_TTL=600
-SESSION_MAP_TTL=600
+# TTL 설정 (초 단위, 기본 300)
+SESSION_CACHE_TTL=300
 ```
 
 ## 📊 주요 API 사용 예시
@@ -221,7 +179,7 @@ SESSION_MAP_TTL=600
 curl -X POST "http://localhost:5000/api/v1/sessions" \
   -H "Content-Type: application/json" \
   -d '{
-    "userId": "user_001",
+    "userId": "0616001905",
     "channel": {
       "eventType": "ICON_ENTRY",
       "eventChannel": "mobile"
@@ -265,7 +223,7 @@ curl -X PATCH "http://localhost:5000/api/v1/sessions/gsess_20260113.../state" \
 ### 세션 전체 정보 조회 (세션 + 턴 목록)
 
 ```bash
-curl -X GET "http://localhost:5000/api/v1/contexts/sessions/gsess_20260113.../full"
+curl -X GET "http://localhost:5000/api/v1/sessions/gsess_20260113.../full"
 
 # 응답: {session: {...}, turns: [...], total_turns: 3}
 ```
@@ -273,61 +231,44 @@ curl -X GET "http://localhost:5000/api/v1/contexts/sessions/gsess_20260113.../fu
 ### SOL API 결과 저장
 
 ```bash
-curl -X POST "http://localhost:5000/api/v1/contexts/turn-results" \
+curl -X POST "http://localhost:5000/api/v1/sessions/gsess_20260113.../api-results" \
   -H "Content-Type: application/json" \
   -d '{
-    "sessionId": "gsess_20260113...",
-    "turnId": "turn_001",
+    "global_session_key": "gsess_20260113...",
+    "turn_id": "turn_001",
     "agent": "balance_agent",
     "result": "SUCCESS",
     "transactionResult": [
-      {"trxCd": "BAL001", "responseData": {"balance": 500000}}
+      {"trxCd": "BAL001", "responseData": {"balance": 1500000}}
     ]
   }'
 ```
 
-## 🎯 Sprint 4 주요 변경사항
+## 🎯 Sprint 5 주요 변경사항
 
-### MariaDB 영구 저장소 통합
-- Redis (동기) + MariaDB (비동기) 하이브리드 저장소
-- 세션 생성/업데이트/종료 시 자동으로 MariaDB에 비동기 저장
-- Agent 세션 매핑도 MariaDB에 영구 저장
+### Redis 전용 전환
+- MariaDB 제거: Redis만 사용하여 단순화
+- Mock Repository 제거: Session/Context Mock 제거 (Profile Mock만 유지)
+- BackgroundTasks 제거: 비동기 저장 로직 제거
 
-### 필드명 통일
-- `session_id` 제거: Redis에서 중복 필드 제거
-- `local_session_key` → `agent_session_key`: 모든 코드에서 통일
-- `current_subagent_id` → `action_owner`: MariaDB 필드명 통일
-- `last_updated_at` → `updated_at`: MariaDB 필드명 통일
+### 저장소 단순화
+- Redis만 사용: 세션/컨텍스트/턴 메타데이터 모두 Redis에 저장
+- TTL 기반 관리: 세션 생존 시간 자동 관리
+- Profile Mock 유지: 개발/테스트용 프로파일 Mock Repository 유지
 
-### Context DB 구축
-- MariaDB에 Context/Turn 메타데이터 저장
-- SOL API 연동 결과도 MariaDB에 비동기 저장
-- 세션 전체 정보 조회 API에서 MariaDB 데이터 포함
+### 코드 정리
+- MariaDB 관련 코드 제거: `app/db/mariadb.py`, `app/models/mariadb_models.py`, `scripts/init_db.sql` 등
+- Mock 관련 코드 제거: `MockSessionRepository`, `MockContextRepository` 제거
+- API 통합: `app/api/v1/contexts.py` 삭제, `app/api/v1/sessions.py`로 통합
+- Repository 통합: `app/repositories/redis_context_repository.py` 삭제, `app/repositories/redis_session_repository.py`로 통합
+- 스키마 통합: `app/schemas/contexts.py` 삭제, `app/schemas/common.py`로 통합
+- 불필요한 import 제거: 사용하지 않는 import 정리
 
-### 코드 품질 개선 (리팩토링)
-- **공통 유틸리티 함수 추가** (`app/core/utils.py`):
-  - `safe_json_parse()`: JSON 파싱 통일 및 안전한 에러 처리
-  - `safe_json_dumps()`: JSON 직렬화 통일
-  - `datetime_to_iso()`, `iso_to_datetime()`: Datetime 변환 통일
-  - `safe_datetime_parse()`: Datetime 파싱 통일
-- **코드 중복 제거**: JSON 파싱 로직을 유틸리티 함수로 통일
-- **타입 힌팅 개선**: 함수 반환 타입 명시 및 타입 안정성 향상
-- **에러 처리 일관성 향상**: 안전한 파싱 및 변환으로 런타임 에러 방지
-- **필드명 통일**: Context Repository에서 `last_updated_at` → `updated_at` 통일
-- **인터페이스 제거**: `app/repositories/base.py` 삭제, Duck Typing 방식으로 전환
-  - ABC 패턴 인터페이스 제거로 코드 단순화
-  - 실제 구현과 맞지 않는 인터페이스 제거
-  - Duck Typing을 통한 런타임 유연성 확보
-- **사용되지 않는 스키마 제거**: `app/schemas/contexts.py` 정리
-  - `ContextCreate`, `ContextUpdate`, `ContextResponse` 제거
-  - `TurnCreate`, `TurnCreateWithAPI` 제거
-  - 실제 사용 중인 스키마만 유지
-
-## 🎯 향후 확장 (Sprint 5+)
+## 🎯 향후 확장 (Sprint 6+)
 
 - 개인화 프로파일 연동 (VDB/CRM 연동)
 - 인증 정책 반영 (API Key 인증 활성화)
-- Session API로 통일 (Contexts API를 Sessions API 하위로 통합)
+- 여러 Agent 매핑 한 번에 처리 (`state_patch.agent_mappings` 배열 지원)
 
 ## 🛠️ 기술 스택
 
@@ -350,10 +291,10 @@ curl -X POST "http://localhost:5000/api/v1/contexts/turn-results" \
 
 ## 📚 참고 문서
 
-- `docs/Session_Manager_API_Sprint4.md` – Sprint 4 API 명세서 (최신)
+- `docs/Session_Manager_API_Sprint5.md` – Sprint 5 API 명세서 (최신)
+- `docs/Session_Manager_API_Sprint4.md` – Sprint 4 API 명세서
 - `docs/Session_Manager_API_Sprint3.md` – Sprint 3 API 명세서
-- `docs/SPRINT3_DESIGN_FINAL.md` – 설계 문서
-- `docs/session_manager_onprem_migration.md` – 배포 가이드
-- `scripts/init_db.sql` – MariaDB 스키마 초기화 스크립트
+- `docs/redis_data.md` – Redis 데이터 구조 정의서
+- `docs/redis.md` – Redis 운영 가이드
 
 

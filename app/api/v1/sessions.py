@@ -3,7 +3,11 @@ Session Manager - Unified Sessions API
 통합 세션 API: 기능별 분리, 인증으로 호출자 구분
 """
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+import logging
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from app.core.auth import APIKeyType, require_api_key
 from app.schemas.common import (
@@ -12,13 +16,18 @@ from app.schemas.common import (
     SessionCloseResponse,
     SessionCreateRequest,
     SessionCreateResponse,
+    SessionFullResponse,
     SessionPatchRequest,
     SessionPatchResponse,
     SessionPingResponse,
     SessionResolveRequest,
     SessionResolveResponse,
+    SolApiResultRequest,
+    TurnResponse,
 )
 from app.services.session_service import SessionService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
@@ -236,3 +245,149 @@ async def close_session(
         close_reason=close_reason,
     )
     return service.close_session(request, background_tasks)
+
+
+# ============ 실시간 API 연동 결과 저장 ============
+
+
+@router.post(
+    "/{global_session_key}/api-results",
+    response_model=TurnResponse,
+    status_code=201,
+    summary="실시간 API 연동 결과 저장",
+    description="""
+    DBS 등 외부 실시간 API 호출 결과를
+    global_session_key, turn_id 기반으로 세션 컨텍스트에 저장합니다.
+
+    필수 경로 변수:
+    - global_session_key: 세션 키
+
+    필수 요청 필드:
+    - global_session_key: Session Manager의 global_session_key 와 동일한 세션 ID
+    - turn_id: 이 호출에 대응하는 턴 ID
+
+    선택 요청 필드(SOL 스펙 기준, 상황에 따라 생략 가능):
+    - agent: 호출한 업무 Agent ID (다른 API의 agent_id 와 동일 의미)
+    - transactionPayload: 요청 Payload 배열 (각 항목에 trxCd, dataBody 포함 가능)
+    - globId, requestId: SOL 트랜잭션 식별자
+    - result, resultCode, resultMsg: SOL 처리 결과 코드/메시지
+    - transactionResult: 응답 Payload 배열 (각 항목에 trxCd, responseData 포함 가능)
+
+    주요 응답 필드:
+    - turn_id: 저장된 턴 ID (요청의 turnId)
+    - global_session_key: 세션 키 (최상위 레벨에 명시적 포함)
+    - timestamp: 서버 기준 저장 시각
+    - metadata.sol_api: SOL 요청/응답 전체가 들어있는 메타데이터 블록 (내부에 global_session_key, turn_id 포함)
+    """,
+)
+async def save_api_result(
+    global_session_key: str,
+    request: SolApiResultRequest,
+    service: SessionService = Depends(get_session_service),
+):
+    """실시간 API 연동 결과를 턴 메타데이터로 저장한다."""
+
+    # 경로 변수와 요청 body의 global_session_key 일치 확인
+    if request.global_session_key != global_session_key:
+        raise HTTPException(status_code=400, detail="global_session_key mismatch")
+
+    # 1) 세션 조회
+    session = service.session_repo.get(global_session_key)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
+
+    # 2) SOL API 요청/응답 메타데이터 구성 (SOL 스펙 필드명을 그대로 유지)
+    request_payloads = [p.model_dump(by_alias=True) for p in request.transaction_payload] if request.transaction_payload else []
+    response_results = [r.model_dump(by_alias=True) for r in request.transaction_result] if request.transaction_result else []
+
+    sol_metadata: dict[str, Any] = {
+        "global_session_key": request.global_session_key,
+        "turn_id": request.turn_id,
+    }
+
+    if request.agent_id is not None:
+        sol_metadata["agent"] = request.agent_id
+
+    # 요청/응답 블록은 존재하는 값만 포함하여 구성
+    request_block: dict[str, Any] = {}
+    if request_payloads:
+        request_block["transactionPayload"] = request_payloads
+
+    response_block: dict[str, Any] = {}
+    if request.glob_id is not None:
+        response_block["globId"] = request.glob_id
+    if request.request_id is not None:
+        response_block["requestId"] = request.request_id
+    if request.result is not None:
+        response_block["result"] = request.result
+    if request.result_code is not None:
+        response_block["resultCode"] = request.result_code
+    if request.result_msg is not None:
+        response_block["resultMsg"] = request.result_msg
+    if response_results:
+        response_block["transactionResult"] = response_results
+
+    if request_block:
+        sol_metadata["request"] = request_block
+    if response_block:
+        sol_metadata["response"] = response_block
+
+    # 3) 턴 메타데이터로 저장 (Redis에 즉시 저장)
+    now = datetime.now(UTC).isoformat()
+    turn_data = {
+        "turn_id": request.turn_id,
+        "global_session_key": request.global_session_key,
+        "timestamp": now,
+        "metadata": {"sol_api": sol_metadata},
+    }
+
+    # Redis에 즉시 저장 (SessionRepository의 Turn 메서드 사용)
+    service.session_repo.add_turn(global_session_key, turn_data)
+
+    return TurnResponse(**turn_data)
+
+
+# ============ 세션 전체 정보 조회 ============
+
+
+@router.get(
+    "/{global_session_key}/full",
+    response_model=SessionFullResponse,
+    summary="세션 전체 정보 조회 (세션 + 턴 목록)",
+    description="""
+    세션 메타데이터와 해당 세션의 모든 턴 메타데이터를 한 번에 조회합니다.
+
+    필수 경로 변수:
+    - global_session_key: 조회할 세션 키
+
+    주요 응답 필드:
+    - session: 세션 메타데이터 전체 (GET /api/v1/sessions/{key} 와 동일한 구조)
+    - turns: 턴 메타데이터 목록 (POST /api/v1/sessions/{key}/api-results 로 저장된 데이터)
+    - total_turns: 전체 턴 수
+
+    사용 사례:
+    - 관리자/Portal이 특정 세션의 전체 이력 조회
+    - 디버깅/모니터링 시 세션 상태 + SOL API 호출 이력 확인
+    """,
+)
+async def get_session_full(
+    global_session_key: str,
+    service: SessionService = Depends(get_session_service),
+):
+    """세션 메타데이터 + 모든 턴 메타데이터를 한 번에 조회합니다."""
+
+    # 1) 세션 조회 (SessionResolveResponse)
+    session_response = service.resolve_session(SessionResolveRequest(global_session_key=global_session_key))
+
+    # 2) 세션의 턴 목록 조회
+    session = service.session_repo.get(global_session_key)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
+
+    turns = service.session_repo.get_turns(global_session_key)
+
+    return SessionFullResponse(
+        session=session_response.model_dump(),
+        turns=turns,
+        total_turns=len(turns),
+    )

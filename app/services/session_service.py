@@ -1,34 +1,23 @@
-"""Session Manager - Session Service (v4.0 - Sync).
+"""Session Manager - Session Service (v5.0 - Sync).
 
-세션 관리 핵심 로직 (Sync 방식)
+세션 관리 핵심 로직 (Sync 방식, Redis만 사용)
 """
 
-import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, HTTPException
 
 from app.config import (
-    CONTEXT_ID_PREFIX,
     GLOBAL_SESSION_PREFIX,
-    LOCAL_SESSION_PREFIX,
-    SESSION_CACHE_TTL,
-    SESSION_MAP_TTL,
-    USE_MOCK_REDIS,
 )
 from app.core.exceptions import SessionNotFoundError
-from app.core.utils import datetime_to_iso, iso_to_datetime, safe_json_dumps, safe_json_parse
-from app.db.mariadb import SessionLocal
+from app.core.utils import datetime_to_iso, safe_json_dumps, safe_json_parse
 from app.repositories import (
-    MockContextRepository,
-    MockSessionRepository,
-    RedisContextRepository,
     RedisSessionRepository,
 )
-from app.repositories.mariadb_session_repository import MariaDBSessionRepository
 
 logger = logging.getLogger(__name__)
 from app.schemas.common import (
@@ -59,23 +48,14 @@ class SessionService:
     def __init__(
         self,
         session_repo=None,
-        context_repo=None,
         profile_repo=None,
     ):
-        if session_repo is not None and context_repo is not None:
+        if session_repo is not None:
             # 명시적으로 Repository가 주입된 경우 그대로 사용
             self.session_repo = session_repo
-            self.context_repo = context_repo
         else:
-            # 기본 Repository 선택:
-            # - USE_MOCK_REDIS=true 이면 In-Memory Mock Repository 사용 (Redis 불필요)
-            # - 그렇지 않으면 Redis 기반 Repository 사용
-            if USE_MOCK_REDIS:
-                self.session_repo = MockSessionRepository()
-                self.context_repo = MockContextRepository()
-            else:
-                self.session_repo = RedisSessionRepository()
-                self.context_repo = RedisContextRepository()
+            # Redis 기반 Repository 사용
+            self.session_repo = RedisSessionRepository()
 
         # Profile Repository는 주입된 값을 그대로 사용 (없으면 None)
         self.profile_repo = profile_repo
@@ -151,70 +131,6 @@ class SessionService:
 
         return None
 
-    def _save_session_to_mariadb(self, global_session_key: str) -> None:
-        """Redis 세션 스냅샷을 MariaDB에 비동기 저장
-
-        BackgroundTasks에서 호출되어 API 응답 후 실행된다.
-        MariaDB 연결이 없거나 에러가 발생해도 로깅만 하고 예외를 발생시키지 않는다.
-
-        저장 내용:
-        - 세션 메타데이터 (SessionModel)
-        - Agent 세션 매핑 (AgentSessionModel) - Redis session_map에서 조회하여 저장
-        """
-        if SessionLocal is None:
-            # MariaDB가 구축되지 않은 경우 스킵
-            logger.debug(f"MariaDB not configured, skipping session save for {global_session_key}")
-            return
-
-        try:
-            # Redis에서 최신 세션 데이터 조회
-            session_data = self.session_repo.get(global_session_key)
-            if not session_data:
-                logger.warning(f"Session not found in Redis: {global_session_key}")
-                return
-
-            # MariaDB 세션 저장
-            db = SessionLocal()
-            try:
-                mariadb_repo = MariaDBSessionRepository(db)
-                mariadb_repo.create_or_update(global_session_key, session_data)
-
-                # Agent 세션 매핑도 저장 (Redis session_map에서 조회)
-                if isinstance(self.session_repo, RedisSessionRepository):
-                    from app.db.redis import RedisHelper, get_redis_client
-
-                    redis_client = get_redis_client()
-                    redis_helper = RedisHelper(redis_client)
-                    mappings = redis_helper.get_all_mappings_for_session(global_session_key)
-
-                    for mapping_data in mappings:
-                        try:
-                            agent_id = mapping_data.get("agent_id")
-                            agent_session_key = mapping_data.get("agent_session_key")
-                            agent_type = mapping_data.get("agent_type", "task")
-
-                            if agent_id and agent_session_key:
-                                mariadb_repo.create_or_update_agent_mapping(
-                                    global_session_key=global_session_key,
-                                    agent_id=agent_id,
-                                    agent_session_key=agent_session_key,
-                                    agent_type=agent_type,
-                                )
-                                logger.debug(
-                                    f"Agent mapping saved to MariaDB: {global_session_key} -> {agent_id} ({agent_session_key})"
-                                )
-                        except Exception as mapping_error:
-                            logger.warning(f"Failed to save agent mapping: {mapping_error}")
-
-                logger.debug(f"Session saved to MariaDB: {global_session_key}")
-            finally:
-                db.close()
-
-        except Exception as e:
-            # MariaDB 저장 실패는 로깅만 하고 예외를 전파하지 않음
-            # (API 응답은 이미 완료되었으므로)
-            logger.error(f"Failed to save session to MariaDB: {global_session_key}, error: {e}", exc_info=True)
-
     # ============ AGW API ============
 
     def create_session(self, request: SessionCreateRequest, background_tasks: BackgroundTasks | None = None) -> SessionCreateResponse:
@@ -222,21 +138,18 @@ class SessionService:
 
         세션 생성 흐름:
         1. 세션 객체 생성
-        2. 고객 프로파일 조회 (MariaDB context_db에서)
+        2. 고객 프로파일 조회 (Profile Repository에서)
         3. Redis 즉시 저장 (세션 스냅샷)
-        4. Context 생성
-        5. MariaDB 비동기 저장
         """
-        # Session Manager가 Global Session Key 및 Context ID 생성
+        # Session Manager가 Global Session Key 생성
         global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
-        context_id = self._generate_id(CONTEXT_ID_PREFIX)
 
-        # 고객 프로파일 조회 (MariaDB context_db 또는 Mock Repository)
+        # 고객 프로파일 조회 (Profile Repository)
         profile_data = None
         if self.profile_repo:
             customer_profile = self.profile_repo.get_profile(
                 user_id=request.user_id,
-                context_id=context_id,
+                context_id=None,  # context_id 제거됨
                 background_tasks=background_tasks,
             )
             if customer_profile:
@@ -257,24 +170,12 @@ class SessionService:
             user_id=request.user_id,
             channel=channel_value,
             conversation_id="",  # Pass empty string instead of conversation_id
-            context_id=context_id,
             session_state=SessionState.START.value,
             task_queue_status=TaskQueueStatus.NULL.value,
             subagent_status=SubAgentStatus.UNDEFINED.value,
             customer_profile=profile_data,
             start_type=start_type_value,
         )
-
-        # Context 생성
-        self.context_repo.create(
-            context_id=context_id,
-            global_session_key=global_session_key,
-            user_id=request.user_id,
-        )
-
-        # MariaDB 비동기 저장
-        if background_tasks:
-            background_tasks.add_task(self._save_session_to_mariadb, global_session_key)
 
         # 외부 응답은 Global 세션 키만 반환 (상세 메타데이터는 조회 API에서 확인)
         return SessionCreateResponse(global_session_key=global_session_key)
@@ -383,7 +284,6 @@ class SessionService:
         세션 업데이트 흐름:
         1. 세션 상태 업데이트
         2. Redis 즉시 저장 (세션 스냅샷)
-        3. MariaDB 비동기 저장
         """
         session = self.session_repo.get(request.global_session_key)
         if not session:
@@ -439,7 +339,7 @@ class SessionService:
                 if last_event_str:
                     updates["last_event"] = last_event_str
 
-            # Agent 세션 매핑 등록 (세션 상태 업데이트 시 함께 처리)
+            # Agent 세션 매핑 등록 (세션 hash에 저장)
             if patch.agent_session_key and patch.last_agent_id:
                 agent_type_value = patch.last_agent_type.value if patch.last_agent_type else AgentType.TASK.value
                 self.session_repo.set_local_mapping(
@@ -470,10 +370,6 @@ class SessionService:
 
         self.session_repo.update(request.global_session_key, **updates)
 
-        # MariaDB 비동기 저장
-        if background_tasks:
-            background_tasks.add_task(self._save_session_to_mariadb, request.global_session_key)
-
         return SessionPatchResponse(status="success", updated_at=now)
 
     def ping_session(self, global_session_key: str) -> SessionPingResponse:
@@ -488,12 +384,9 @@ class SessionService:
         if not session:
             return SessionPingResponse(global_session_key=global_session_key, is_alive=False, expires_at=None)
 
-        # 저장소별 TTL 연장 처리 (Duck typing)
+        # TTL 연장 처리
         refreshed = None
-        if isinstance(self.session_repo, (RedisSessionRepository, MockSessionRepository)) and hasattr(
-            self.session_repo,
-            "refresh_ttl",
-        ):
+        if hasattr(self.session_repo, "refresh_ttl"):
             refreshed = self.session_repo.refresh_ttl(global_session_key)
 
         # refresh_ttl 호출 결과가 없으면 기존 세션 정보 사용
@@ -518,7 +411,6 @@ class SessionService:
         세션 종료 흐름:
         1. 세션 상태를 END로 변경
         2. Redis 업데이트
-        3. MariaDB 최종 상태 저장 (비동기)
         """
         session = self.session_repo.get(request.global_session_key)
         if not session:
@@ -535,10 +427,6 @@ class SessionService:
             updates["final_summary"] = request.final_summary
 
         self.session_repo.update(request.global_session_key, **updates)
-
-        # MariaDB 최종 상태 저장 (비동기)
-        if background_tasks:
-            background_tasks.add_task(self._save_session_to_mariadb, request.global_session_key)
 
         # conversation_id 없이 세션 기준 아카이브 ID 생성
         archived_id = f"arch_{request.global_session_key}"

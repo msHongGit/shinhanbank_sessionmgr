@@ -1,7 +1,7 @@
-"""Session Manager - Main Application (v4.0, Sprint 4).
+"""Session Manager - Main Application (v5.0, Sprint 5).
 
 세션 상태 / 컨텍스트 메타데이터 / 에이전트 세션 매핑 관리 API 진입점.
-Sprint 4 구현: Redis 기반 세션/컨텍스트 캐시 + MariaDB 영구 저장소 (비동기)
+Sprint 5 구현: Redis 기반 세션/컨텍스트 관리 (Redis만 사용)
 """
 
 from contextlib import asynccontextmanager
@@ -13,23 +13,19 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
-from app.config import ALLOWED_ORIGINS, API_PREFIX, APP_ENV, DEBUG, USE_MOCK_REDIS
+from app.config import ALLOWED_ORIGINS, API_PREFIX, DEBUG
 from app.core.exceptions import SessionManagerError
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan - DB/Redis 연결"""
+    """Application lifespan - Redis 연결"""
     # Startup
     print("🚀 Session Manager starting...")
 
-    # Sprint 4: Redis + MariaDB 사용
-    # Redis와 MariaDB 연결은 각 Repository에서 필요 시 초기화됨
-    from app.config import USE_MOCK_REDIS, USE_MARIADB
-
-    mode = "Mock" if USE_MOCK_REDIS else "Production"
-    db_status = "MariaDB enabled" if USE_MARIADB else "MariaDB disabled"
-    print(f"✅ Session Manager started ({mode} mode, {db_status})")
+    # Sprint 5: Redis만 사용
+    # Redis 연결은 각 Repository에서 필요 시 초기화됨
+    print("✅ Session Manager started (Redis only)")
 
     yield
 
@@ -41,7 +37,7 @@ app = FastAPI(
     title="Session Manager API",
     description=dedent(
         """
-        ## Session Manager v4.0 (Sprint 3+)
+        ## Session Manager v5.0 (Sprint 5)
 
         은행 AI Agent 시스템의 세션/컨텍스트 관리 서비스
 
@@ -63,7 +59,7 @@ app = FastAPI(
         - 세션 조회 시 customer_profile 필드로 반환
 
         **SOL API 연동 로그**
-        - 실시간 API 호출 결과를 turnId 기반 메타데이터로 저장
+        - 실시간 API 호출 결과를 `turn_id` 기반 메타데이터로 저장
         - 세션 전체 정보 조회 API로 세션 + 턴 목록 한 번에 확인 가능
 
         ### 주요 API 엔드포인트
@@ -74,23 +70,19 @@ app = FastAPI(
         - `GET /sessions/{key}/ping` - 세션 생존 확인 및 TTL 연장
         - `PATCH /sessions/{key}/state` - 세션 상태 업데이트
         - `DELETE /sessions/{key}` - 세션 종료
-
-        **Contexts API** (`/api/v1/contexts`)
-        - `POST /contexts/turn-results` - SOL API 결과 저장
-        - `GET /contexts/sessions/{key}/full` - 세션 전체 정보 조회 (세션 + 턴 목록)
+        - `POST /sessions/{key}/api-results` - 실시간 API 연동 결과 저장
+        - `GET /sessions/{key}/full` - 세션 전체 정보 조회 (세션 + 턴 목록)
 
         ### 저장소
 
-        - **Redis**: 세션/컨텍스트/턴 메타데이터 캐시 (기본 TTL 600초, 동기 저장)
-        - **MariaDB**: 세션/컨텍스트/턴 영구 저장소 (비동기 저장, BackgroundTasks)
+        - **Redis**: 세션/턴 메타데이터 저장 (기본 TTL 300초)
 
         ### 환경
 
-        - 로컬/Dev: Redis + MariaDB (또는 Mock 모드)
-        - 운영: 환경변수 기반 설정 (API Key 인증 활성화 가능)
+        - 로컬/Dev/운영: Redis 기반 (환경변수 기반 설정, API Key 인증 활성화 가능)
         """
     ),
-    version="4.0.0",
+    version="5.0.0",
     openapi_url=f"{API_PREFIX}/openapi.json",
     docs_url=f"{API_PREFIX}/docs",
     redoc_url=f"{API_PREFIX}/redoc",
@@ -127,8 +119,8 @@ def root_health_check():
     return {
         "status": "healthy",
         "service": "session-manager",
-        "version": "4.0.0",
-        "mode": "mock" if USE_MOCK_REDIS else "production",
+        "version": "5.0.0",
+        "storage": "redis",
     }
 
 

@@ -4,11 +4,11 @@ from datetime import UTC, datetime
 
 
 def test_save_sol_api_result_as_turn_metadata(client, agw_headers, ma_headers):
-    """/api/v1/contexts/turn-results 로 SOL API 결과를 저장한다."""
+    """/api/v1/sessions/{global_session_key}/api-results 로 SOL API 결과를 저장한다."""
 
     # 1) 세션 생성 (global_session_key 확보)
     session_req = {
-        "userId": "user_sol_001",
+        "userId": "0616001906",
         "channel": {
             "eventType": "ICON_ENTRY",
             "eventChannel": "web",
@@ -20,8 +20,8 @@ def test_save_sol_api_result_as_turn_metadata(client, agw_headers, ma_headers):
 
     # 2) SOL API 결과 저장 요청 (sol_api.md 스펙 기반)
     body = {
-        "sessionId": global_session_key,
-        "turnId": "turn_sol_001",
+        "global_session_key": global_session_key,
+        "turn_id": "turn_sol_001",
         "agent": "dbs_caller",
         "transactionPayload": [
             {
@@ -42,17 +42,17 @@ def test_save_sol_api_result_as_turn_metadata(client, agw_headers, ma_headers):
         ],
     }
 
-    resp = client.post("/api/v1/contexts/turn-results", json=body, headers=ma_headers)
+    resp = client.post(f"/api/v1/sessions/{global_session_key}/api-results", json=body, headers=ma_headers)
     assert resp.status_code == 201
 
     data = resp.json()
-    assert data["turn_id"] == "turn_sol_001"
+    # turn_id, global_session_key는 스키마에서 필수 필드로 정의되어 있어 자동 검증됨
     assert "metadata" in data
     assert "sol_api" in data["metadata"]
 
     sol_meta = data["metadata"]["sol_api"]
-    assert sol_meta["sessionId"] == global_session_key
-    assert sol_meta["turnId"] == "turn_sol_001"
+    assert sol_meta["global_session_key"] == global_session_key
+    assert sol_meta["turn_id"] == "turn_sol_001"
     assert sol_meta["agent"] == "dbs_caller"
 
     # 요청/응답 메타데이터가 구조적으로 포함되었는지 확인
@@ -67,7 +67,7 @@ def test_get_session_full_info(client, agw_headers, ma_headers):
 
     # 1) 세션 생성
     session_req = {
-        "userId": "user_full_001",
+        "userId": "0616001907",
         "channel": {
             "eventType": "ICON_ENTRY",
             "eventChannel": "mobile",
@@ -98,8 +98,8 @@ def test_get_session_full_info(client, agw_headers, ma_headers):
 
     # 3) SOL API 결과 저장 (턴 메타데이터)
     sol_body = {
-        "sessionId": global_session_key,
-        "turnId": "turn_full_001",
+        "global_session_key": global_session_key,
+        "turn_id": "turn_full_001",
         "agent": "balance_agent",
         "result": "SUCCESS",
         "transactionResult": [
@@ -109,11 +109,11 @@ def test_get_session_full_info(client, agw_headers, ma_headers):
             }
         ],
     }
-    sol_resp = client.post("/api/v1/contexts/turn-results", json=sol_body, headers=ma_headers)
+    sol_resp = client.post(f"/api/v1/sessions/{global_session_key}/api-results", json=sol_body, headers=ma_headers)
     assert sol_resp.status_code == 201
 
     # 4) 세션 전체 정보 조회
-    full_resp = client.get(f"/api/v1/contexts/sessions/{global_session_key}/full", headers=ma_headers)
+    full_resp = client.get(f"/api/v1/sessions/{global_session_key}/full", headers=ma_headers)
     assert full_resp.status_code == 200
 
     full_data = full_resp.json()

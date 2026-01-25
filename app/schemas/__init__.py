@@ -20,19 +20,18 @@ from app.schemas.common import (
     SessionCloseResponse,
     SessionCreateRequest,
     SessionCreateResponse,
+    SessionFullResponse,
     SessionPatchRequest,
     SessionPatchResponse,
     SessionResolveRequest,
     SessionResolveResponse,
     SessionState,
-    StatePatch,
-    SubAgentStatus,
-    TaskQueueStatus,
-)
-from app.schemas.contexts import (
     SolApiResultRequest,
     SolDBSTransactionPayload,
     SolDBSTransactionResult,
+    StatePatch,
+    SubAgentStatus,
+    TaskQueueStatus,
     TurnResponse,
 )
 
@@ -63,8 +62,9 @@ __all__ = [
     "SessionPatchResponse",
     "SessionResolveRequest",
     "SessionResolveResponse",
+    "SessionFullResponse",
     "StatePatch",
-    # Contexts / SOL API (Sprint 3)
+    # 실시간 API 연동 결과 저장 (Sprint 3+)
     "TurnResponse",
     "SolDBSTransactionPayload",
     "SolDBSTransactionResult",

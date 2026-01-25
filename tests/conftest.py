@@ -33,7 +33,7 @@ def client():
 
     profile_repo = MockProfileRepository()
 
-    # SessionService는 기본적으로 RedisSessionRepository/RedisContextRepository 를 사용하고,
+    # SessionService는 기본적으로 RedisSessionRepository를 사용하고,
     # 여기서 Profile Repository만 Mock 으로 주입한다.
     def override_session_service():
         return SessionService(profile_repo=profile_repo)
@@ -102,16 +102,10 @@ def sample_agent_session_key():
 
 
 @pytest.fixture
-def sample_context_id():
-    """샘플 Context ID"""
-    return "ctx_20250316_001"
-
-
-@pytest.fixture
 def sample_customer_profile():
     """샘플 고객 프로파일"""
     return CustomerProfile(
-        user_id="user_001",
+        cusnoS10="0616001905",
         attributes=[ProfileAttribute(key="segment", value="VIP", source_system="crm")],
         segment="VIP",
         preferences={"language": "ko"},
@@ -130,7 +124,7 @@ def sample_conversation_turn():
 @pytest.fixture
 def sample_agw_session_create_request(sample_global_session_key):
     """AGW 세션 생성 요청"""
-    return {"global_session_key": sample_global_session_key, "user_id": "user_001", "channel": "mobile", "request_id": "req_001"}
+    return {"global_session_key": sample_global_session_key, "user_id": "0616001905", "channel": "mobile", "request_id": "req_001"}
 
 
 # ============ MA Requests ============
@@ -173,19 +167,7 @@ def sample_ma_session_close_request(sample_global_session_key):
     }
 
 
-@pytest.fixture
-def sample_ma_turn_save_request(sample_global_session_key, sample_context_id, sample_conversation_turn):
-    """MA 대화 턴 저장 요청"""
-    return {"global_session_key": sample_global_session_key, "context_id": sample_context_id, "turn": sample_conversation_turn.model_dump()}
-
-
 # ============ Portal Request ============
-
-
-@pytest.fixture
-def sample_portal_context_delete_request(sample_context_id):
-    """Portal Context 삭제 요청"""
-    return {"context_id": sample_context_id, "reason": "사용자 요청"}
 
 
 # ============ VDB Request ============
@@ -199,7 +181,7 @@ def sample_vdb_batch_request():
         "source_system": "crm",
         "computed_at": datetime.now(UTC).isoformat(),
         "records": [
-            {"user_id": "user_001", "attributes": [{"key": "segment", "value": "VIP", "source_system": "crm"}], "segment": "VIP"},
-            {"user_id": "user_002", "attributes": [{"key": "segment", "value": "일반", "source_system": "crm"}], "segment": "일반"},
+            {"user_id": "0616001905", "attributes": [{"key": "segment", "value": "VIP", "source_system": "crm"}], "segment": "VIP"},
+            {"user_id": "0616001906", "attributes": [{"key": "segment", "value": "일반", "source_system": "crm"}], "segment": "일반"},
         ],
     }

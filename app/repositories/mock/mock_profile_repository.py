@@ -27,9 +27,9 @@ class MockProfileRepository:
     def _init_mock_data(self):
         """Mock 데이터 초기화"""
         self._profiles = {
-            "user_vip_001": [
+            "0616001905": [
                 {
-                    "user_id": "user_vip_001",
+                    "user_id": "0616001905",
                     "attribute_key": "segment",
                     "attribute_value": "VIP",
                     "source_system": "CRM",
@@ -39,7 +39,7 @@ class MockProfileRepository:
                     "updated_at": datetime.now(UTC).isoformat(),
                 },
                 {
-                    "user_id": "user_vip_001",
+                    "user_id": "0616001905",
                     "attribute_key": "preferred_language",
                     "attribute_value": "ko",
                     "source_system": "CRM",
@@ -50,9 +50,9 @@ class MockProfileRepository:
                 },
             ],
             # Sprint3 데모용 사용자들
-            "demo-user-001": [
+            "0616001906": [
                 {
-                    "user_id": "demo-user-001",
+                    "user_id": "0616001906",
                     "attribute_key": "segment",
                     "attribute_value": "DEMO",
                     "source_system": "MOCK",
@@ -62,9 +62,9 @@ class MockProfileRepository:
                     "updated_at": datetime.now(UTC).isoformat(),
                 }
             ],
-            "demo-user-002": [
+            "0616001907": [
                 {
-                    "user_id": "demo-user-002",
+                    "user_id": "0616001907",
                     "attribute_key": "segment",
                     "attribute_value": "DEMO",
                     "source_system": "MOCK",
@@ -74,9 +74,9 @@ class MockProfileRepository:
                     "updated_at": datetime.now(UTC).isoformat(),
                 }
             ],
-            "demo-user-003": [
+            "0616001908": [
                 {
-                    "user_id": "demo-user-003",
+                    "user_id": "0616001908",
                     "attribute_key": "segment",
                     "attribute_value": "DEMO",
                     "source_system": "MOCK",
