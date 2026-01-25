@@ -3,6 +3,7 @@
 세션 관리 핵심 로직 (Sync 방식, Redis만 사용)
 """
 
+import contextlib
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -204,10 +205,8 @@ class SessionService:
         last_event = None
         event_data = safe_json_parse(session.get("last_event"))
         if event_data and isinstance(event_data, dict):
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 last_event = LastEvent(**event_data)
-            except (ValueError, TypeError):
-                pass
 
         # 멀티턴 reference_information 파싱 (mulititurn.md 옵션 A)
         ref_info = safe_json_parse(session.get("reference_information"))
@@ -353,13 +352,8 @@ class SessionService:
         # - 한 세션에 여러 턴이 존재할 수 있으므로 리스트로 저장
         # - 저장 형식: JSON 직렬화된 리스트(str) 또는 리스트 자체를 모두 허용
         if request.turn_id is not None:
-            turn_ids: list[str] = []
-
             parsed_existing = safe_json_parse(session.get("turn_ids"))
-            if isinstance(parsed_existing, list):
-                turn_ids = [str(t) for t in parsed_existing]
-            else:
-                turn_ids = []
+            turn_ids: list[str] = [str(t) for t in parsed_existing] if isinstance(parsed_existing, list) else []
 
             if request.turn_id not in turn_ids:
                 turn_ids.append(request.turn_id)
