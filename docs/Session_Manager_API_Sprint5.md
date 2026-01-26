@@ -57,6 +57,22 @@
   - Session Manager는 Task Queue를 관리하지 않음
   - Master Agent가 Task Queue를 관리하고 Session Manager에 상태만 업데이트
 
+#### 9. JWT 토큰 기반 인증 추가
+- **Sprint 4**: API Key 기반 인증 (선택적)
+- **Sprint 5**: JWT 토큰 기반 인증으로 전환
+  - 세션 생성 시 `access_token`, `refresh_token`, `jti` 자동 발급
+  - Access Token 만료 시간: 5분
+  - Refresh Token 만료 시간: 1시간
+  - Refresh Token Rotation 적용 (토큰 갱신 시 새 `jti` 생성)
+  - 토큰 검증 API (`/api/v1/sessions/verify`) 추가
+  - 토큰 갱신 API (`/api/v1/sessions/refresh`) 추가
+  - Ping API 경로 변경 (`/{global_session_key}/ping` → `/ping`, 토큰 기반)
+  - 세션 종료 API 경로 변경 (`/{global_session_key}` → `/`, 토큰 기반)
+
+#### 10. TTL 설정 변경
+- **Sprint 4**: 기본 TTL 600초 (10분)
+- **Sprint 5**: 기본 TTL 300초 (5분)
+
 ---
 
 ## 1. 공통 정보
@@ -74,21 +90,27 @@
 - OpenAPI JSON: `{BASE_URL}/api/v1/openapi.json`
 - Health: `/` (GET)
 
-### 1.2 인증 (API Key 설계 – 현재 Dev에서는 비활성화 가능)
+### 1.2 인증 (JWT 토큰 기반)
 
-- 헤더: `X-API-Key: {CALLER_API_KEY}`
-- 호출자별 키 (환경변수 예시 이름만 사용):
+Session Manager는 JWT 토큰 기반 인증을 사용합니다.
 
-| Caller   | 환경변수         |
-|----------|------------------|
-| AGW      | `AGW_API_KEY`    |
-| MA       | `MA_API_KEY`     |
-| Portal   | `PORTAL_API_KEY` |
-| VDB/배치 | `VDB_API_KEY`    |
-| External | `EXTERNAL_API_KEY` |
+#### 토큰 발급
+- 세션 생성 시 `access_token`과 `refresh_token`이 자동 발급됩니다.
+- `access_token`: Access Token (만료 시간: 5분)
+- `refresh_token`: Refresh Token (만료 시간: 1시간)
+- `jti`: JWT ID (UUID, Redis에 `jti:{jti}` → `global_session_key` 매핑 저장)
 
-> 현재 Sprint 5 개발 브랜치에서는 `sessions` 라우터에 API Key 의존성이 제거되어 있어, 로컬/Dev에서는 인증 없이 호출 가능합니다.  
-> 운영 환경에서는 `ENABLE_API_KEY_AUTH=true` + `require_api_key()` 복구를 전제로 설계합니다.
+#### 토큰 사용 방법
+- **헤더**: `Authorization: Bearer {access_token}` 또는 `Authorization: Bearer {refresh_token}`
+- **쿠키**: `access_token={access_token}` 또는 `refresh_token={refresh_token}`
+
+#### 토큰 검증
+- 모든 JWT 토큰은 `JWT_SECRET_KEY`로 서명되어 있습니다.
+- 토큰 검증 실패 시 401 Unauthorized 반환
+
+#### Refresh Token Rotation
+- 토큰 갱신 시 새로운 `jti`가 생성되고, 기존 `jti` 매핑은 삭제됩니다.
+- 이전 Refresh Token은 더 이상 사용할 수 없습니다.
 
 ---
 
@@ -144,13 +166,19 @@ POST /api/v1/sessions
 
 ```json
 {
-  "global_session_key": "gsess_20260108_abcd1234"
+  "global_session_key": "gsess_20260108_abcd1234",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "jti": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
 | 필드               | 타입   | 설명                                                             |
 |--------------------|--------|------------------------------------------------------------------|
 | global_session_key | string | 세션 전체를 대표하는 **글로벌 세션 ID** (이후 모든 호출에 사용) |
+| access_token       | string | Access Token (JWT, 만료 시간: 5분)                               |
+| refresh_token      | string | Refresh Token (JWT, 만료 시간: 1시간)                            |
+| jti                | string | JWT ID (UUID, Redis에 `jti:{jti}` → `global_session_key` 매핑 저장) |
 
 **저장 흐름**
 
@@ -369,41 +397,72 @@ PATCH /api/v1/sessions/{global_session_key}/state
 
 ### 2.4 세션 종료
 
+#### 2.4.1 세션 종료 (내부 서비스용 - global_session_key 경로)
+
 **Endpoint**
 
 ```http
 DELETE /api/v1/sessions/{global_session_key}
 ```
 
-**Request Body – `SessionCloseRequest`**
+**Query Parameters**
 
-```json
-{
-  "global_session_key": "gsess_20260108_abcd1234",
-  "close_reason": "user_exit",
-  "final_summary": "이체 완료"
-}
-```
+| 파라미터     | 타입   | 필수 | 설명     |
+|--------------|--------|------|----------|
+| close_reason | string | ❌   | 종료 사유 |
 
-| 필드               | 타입   | 필수 | 설명                    |
-|--------------------|--------|------|-------------------------|
-| global_session_key | string | ✅   | 세션 키                  |
-| close_reason       | string | ❌   | 종료 사유                |
-| final_summary      | string | ❌   | 최종 요약 (1000자 이내)  |
+**언제 사용하나?**
+
+- Master Agent가 세션을 종료할 때
+- 내부 서비스에서 `global_session_key`를 알고 있을 때
 
 **Response Body**
 
 ```json
 {
-  "global_session_key": "gsess_20260108_abcd1234",
-  "session_state": "end",
-  "ended_at": "2026-01-14T10:35:00Z"
+  "status": "success",
+  "closed_at": "2026-01-14T10:35:00Z",
+  "archived_conversation_id": "arch_gsess_20260108_abcd1234"
+}
+```
+
+#### 2.4.2 세션 종료 (토큰 기반)
+
+**Endpoint**
+
+```http
+DELETE /api/v1/sessions
+```
+
+**Query Parameters**
+
+| 파라미터     | 타입   | 필수 | 설명     |
+|--------------|--------|------|----------|
+| close_reason | string | ❌   | 종료 사유 |
+
+**언제 사용하나?**
+
+- Client/AGW가 세션을 종료할 때
+- 토큰에서 `global_session_key`를 추출하여 세션 종료
+
+**요청**
+- 헤더: `Authorization: Bearer {access_token}` 또는 쿠키의 `access_token`
+
+**Response Body**
+
+```json
+{
+  "status": "success",
+  "closed_at": "2026-01-14T10:35:00Z",
+  "archived_conversation_id": "arch_gsess_20260108_abcd1234"
 }
 ```
 
 **저장 흐름**
 
-1. Redis에 세션 상태를 `end`로 업데이트 (동기)
+1. 토큰에서 `global_session_key` 추출
+2. Redis에 세션 상태를 `end`로 업데이트 (동기)
+3. `jti` 매핑 삭제
 
 ---
 
@@ -412,21 +471,34 @@ DELETE /api/v1/sessions/{global_session_key}
 **Endpoint**
 
 ```http
-GET /api/v1/sessions/{global_session_key}/ping
+GET /api/v1/sessions/ping
 ```
+
+**언제 사용하나?**
+
+- Client/AGW가 세션 생존 여부를 확인할 때
+- 토큰에서 `global_session_key`를 추출하여 세션 확인
+- **TTL 연장 없음** (Refresh Token으로 TTL 연장)
+
+**요청**
+- 헤더: `Authorization: Bearer {access_token}` 또는 쿠키의 `access_token`
 
 **Response Body**
 
 ```json
 {
-  "global_session_key": "gsess_20260108_abcd1234",
   "is_alive": true,
   "expires_at": "2026-01-14T10:45:00Z"
 }
 ```
 
-- 세션 TTL 연장 (기본 600초)
-- Redis `expires_at` 갱신
+| 필드       | 타입    | 설명                                    |
+|------------|---------|-----------------------------------------|
+| is_alive   | boolean | 세션 존재 여부 (false면 세션이 없거나 만료됨) |
+| expires_at | string  | 현재 만료 시각 (is_alive=false이면 null)     |
+
+**주의사항**
+- TTL 연장을 하지 않습니다. TTL 연장이 필요하면 Refresh Token API를 사용하세요.
 
 ---
 
@@ -620,7 +692,7 @@ GET /api/v1/sessions/{global_session_key}/full
   - `expires_at`: 만료 시각
   - `created_at`: 생성 시각
   - `updated_at`: 업데이트 시각
-- TTL: `SESSION_CACHE_TTL` (기본 600초)
+- TTL: `SESSION_CACHE_TTL` (기본 300초)
 
 **턴 목록**
 
@@ -628,6 +700,15 @@ GET /api/v1/sessions/{global_session_key}/full
 - 타입: List
 - 값: 턴 메타데이터 (JSON 문자열)
 - TTL: 세션과 동일 (세션 TTL에 따라 자동 만료)
+
+**JWT 토큰 매핑**
+
+- 키: `jti:{jti}`
+- 타입: String
+- 값: `global_session_key`
+- TTL: `SESSION_CACHE_TTL` (기본 300초)
+- 용도: JWT ID (`jti`)로 `global_session_key` 조회
+- 참고: Refresh Token Rotation 시 기존 `jti` 매핑은 삭제되고 새 `jti` 매핑이 생성됨
 
 ---
 
@@ -643,14 +724,13 @@ REDIS_URL=rediss://default:password@host:port/0
 ### 선택 환경변수
 
 ```bash
-# Mock 모드 (테스트/로컬용, 기본 false)
-USE_MOCK_REDIS=false
+# TTL 설정 (초 단위, 기본 300)
+SESSION_CACHE_TTL=300
 
-# TTL 설정 (초 단위, 기본 600)
-SESSION_CACHE_TTL=600
-
-# API Key 인증 (기본 false)
-ENABLE_API_KEY_AUTH=false
+# JWT 설정
+JWT_SECRET_KEY=your-secret-key-here  # 암호학적으로 안전한 랜덤 문자열 (예: openssl rand -hex 32)
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=5    # Access Token 만료 시간 (분)
+JWT_REFRESH_TOKEN_EXPIRE_HOURS=1     # Refresh Token 만료 시간 (시간)
 ```
 
 ---
@@ -669,6 +749,8 @@ ENABLE_API_KEY_AUTH=false
 | SOL 필드명 | `sessionId` (camelCase) | `global_session_key` (snake_case) | 다른 API와 일관성 유지 |
 | Repository | Session + Context 분리 | Session에 통합 | Turn 기능 통합 |
 | Mock | Session/Context/Profile | Profile만 | Mock 정리 |
+| 인증 | API Key 기반 | JWT 토큰 기반 | JWT 토큰 발급/검증/갱신 |
+| TTL 설정 | 기본 600초 | 기본 300초 | TTL 단축 |
 
 ### 코드 품질 개선 (리팩토링)
 
@@ -691,6 +773,12 @@ ENABLE_API_KEY_AUTH=false
   - `app/db/redis.py`에서 `enqueue_task`, `dequeue_task` 등 제거
 - **인터페이스 제거**: `app/repositories/base.py` 삭제, Duck Typing 방식으로 전환
 - **스키마 통합**: `app/schemas/contexts.py` 삭제, `app/schemas/common.py`로 통합
+- **JWT 토큰 인증 추가**: API Key 인증 제거, JWT 토큰 기반 인증으로 전환
+  - `app/core/jwt.py`: JWT 토큰 생성/검증 유틸리티
+  - `app/core/jwt_auth.py`: JWT 인증 의존성
+  - 세션 생성 시 JWT 토큰 자동 발급
+  - 토큰 검증, 갱신, Ping API 추가
+- **API Key 인증 제거**: `app/core/auth.py` 삭제, 모든 API Key 관련 설정 제거
 
 ---
 

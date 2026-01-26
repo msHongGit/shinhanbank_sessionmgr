@@ -13,6 +13,8 @@ from fastapi import BackgroundTasks, HTTPException
 
 from app.config import (
     GLOBAL_SESSION_PREFIX,
+    SESSION_CACHE_TTL,
+    JWT_SECRET_KEY,
 )
 from app.core.exceptions import SessionNotFoundError
 from app.core.utils import datetime_to_iso, safe_json_dumps, safe_json_parse
@@ -38,8 +40,11 @@ from app.schemas.common import (
     SessionResolveRequest,
     SessionResolveResponse,
     SessionState,
+    SessionVerifyResponse,
     SubAgentStatus,
     TaskQueueStatus,
+    TokenRefreshRequest,
+    TokenRefreshResponse,
 )
 
 
@@ -178,8 +183,28 @@ class SessionService:
             start_type=start_type_value,
         )
 
-        # 외부 응답은 Global 세션 키만 반환 (상세 메타데이터는 조회 API에서 확인)
-        return SessionCreateResponse(global_session_key=global_session_key)
+        # JWT 토큰 발급
+        from app.core.jwt import create_access_token, create_refresh_token
+        from app.db.redis import get_redis_client
+        
+        # jti 생성
+        jti = str(uuid4())
+        
+        # Redis에 jti -> global_session_key 매핑 저장
+        redis_client = get_redis_client()
+        redis_client.setex(f"jti:{jti}", SESSION_CACHE_TTL, global_session_key)
+        
+        # Access Token 및 Refresh Token 발급
+        access_token = create_access_token(jti, request.user_id, JWT_SECRET_KEY)
+        refresh_token = create_refresh_token(jti, request.user_id, JWT_SECRET_KEY)
+
+        # 응답 반환 (토큰 포함)
+        return SessionCreateResponse(
+            global_session_key=global_session_key,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            jti=jti,
+        )
 
     # ============ MA API ============
 
@@ -371,12 +396,15 @@ class SessionService:
 
         세션이 존재하면 TTL을 연장하고, 연장 후 만료 시각을 반환한다.
         세션이 없으면 is_alive=False 와 expires_at=None 을 반환한다.
+        
+        주의: 이 메서드는 기존 API 호환성을 위해 유지되며, 
+        새로운 토큰 기반 API에서는 ping_session_by_token을 사용한다.
         """
 
         # 세션 존재 여부 확인
         session = self.session_repo.get(global_session_key)
         if not session:
-            return SessionPingResponse(global_session_key=global_session_key, is_alive=False, expires_at=None)
+            return SessionPingResponse(is_alive=False, expires_at=None)
 
         # TTL 연장 처리
         refreshed = None
@@ -394,10 +422,189 @@ class SessionService:
                 expires_at = None
 
         return SessionPingResponse(
-            global_session_key=global_session_key,
             is_alive=True,
             expires_at=expires_at,
         )
+
+    def ping_session_by_token(self, token: str) -> SessionPingResponse:
+        """토큰 기반 세션 Ping (TTL 연장 없음)
+        
+        Args:
+            token: Access Token 문자열
+            
+        Returns:
+            SessionPingResponse: 세션 생존 여부 및 현재 만료 시각
+            
+        Raises:
+            HTTPException: 토큰이 유효하지 않은 경우 401 반환
+        """
+        from app.core.jwt_auth import get_global_session_key_from_token
+        
+        # 1. 토큰에서 global_session_key 조회
+        try:
+            global_session_key = get_global_session_key_from_token(token)
+        except HTTPException as e:
+            # 잘못된 토큰에 대해서는 401 반환
+            raise e
+        
+        # 2. 세션 조회
+        session = self.session_repo.get(global_session_key)
+        if not session:
+            return SessionPingResponse(is_alive=False, expires_at=None)
+        
+        # 3. 만료 시각 반환 (TTL 연장 안 함)
+        expires_at = None
+        expires_raw = session.get("expires_at")
+        if isinstance(expires_raw, str):
+            try:
+                expires_at = datetime.fromisoformat(expires_raw)
+            except ValueError:
+                expires_at = None
+        
+        return SessionPingResponse(is_alive=True, expires_at=expires_at)
+
+    def verify_token_and_get_session(self, token: str) -> SessionVerifyResponse:
+        """토큰 검증 및 세션 정보 조회
+        
+        Args:
+            token: Access Token 문자열
+            
+        Returns:
+            SessionVerifyResponse: 세션 정보
+        """
+        from app.core.jwt import verify_token
+        from app.db.redis import get_redis_client
+        
+        # 1. 토큰 검증
+        try:
+            payload = verify_token(token, JWT_SECRET_KEY)
+        except ValueError as e:
+            raise HTTPException(status_code=401, detail=str(e))
+        
+        # 2. 토큰 타입 확인
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        
+        # 3. jti 추출 및 global_session_key 조회
+        jti = payload.get("jti")
+        if not jti:
+            raise HTTPException(status_code=401, detail="Invalid token: jti not found")
+        
+        redis_client = get_redis_client()
+        global_session_key = redis_client.get(f"jti:{jti}")
+        
+        if not global_session_key:
+            raise HTTPException(status_code=401, detail="Token expired or invalid")
+        
+        global_session_key = global_session_key if isinstance(global_session_key, str) else global_session_key.decode()
+        
+        # 4. 세션 조회
+        session = self.session_repo.get(global_session_key)
+        if not session:
+            return SessionVerifyResponse(
+                global_session_key=global_session_key,
+                user_id=payload.get("sub", ""),
+                session_state="",
+                is_alive=False,
+                expires_at=None,
+            )
+        
+        # 5. 만료 시각 파싱
+        expires_at = None
+        expires_raw = session.get("expires_at")
+        if isinstance(expires_raw, str):
+            try:
+                expires_at = datetime.fromisoformat(expires_raw)
+            except ValueError:
+                expires_at = None
+        
+        return SessionVerifyResponse(
+            global_session_key=global_session_key,
+            user_id=session.get("user_id", ""),
+            session_state=session.get("session_state", ""),
+            is_alive=True,
+            expires_at=expires_at,
+        )
+
+    def refresh_token(self, refresh_token: str) -> TokenRefreshResponse:
+        """토큰 갱신
+        
+        Args:
+            refresh_token: Refresh Token 문자열
+            
+        Returns:
+            TokenRefreshResponse: 새 토큰 및 세션 정보
+        """
+        from app.core.jwt import verify_token, create_access_token, create_refresh_token
+        from app.db.redis import get_redis_client
+        
+        # 1. Refresh Token 검증
+        try:
+            payload = verify_token(refresh_token, JWT_SECRET_KEY)
+        except ValueError as e:
+            raise HTTPException(status_code=401, detail=str(e))
+        
+        # 2. 토큰 타입 확인
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        
+        # 3. jti 추출 및 global_session_key 조회
+        jti = payload.get("jti")
+        if not jti:
+            raise HTTPException(status_code=401, detail="Invalid token: jti not found")
+        
+        redis_client = get_redis_client()
+        global_session_key = redis_client.get(f"jti:{jti}")
+        
+        if not global_session_key:
+            raise HTTPException(status_code=401, detail="Token expired or invalid")
+        
+        global_session_key = global_session_key if isinstance(global_session_key, str) else global_session_key.decode()
+        
+        # 4. 세션 TTL 연장
+        self.session_repo.refresh_ttl(global_session_key)
+        
+        # 5. 새 jti 생성 (Refresh Token Rotation)
+        from uuid import uuid4
+        new_jti = str(uuid4())
+        
+        # 6. 새 토큰 발급 (새 jti 사용)
+        user_id = payload.get("sub", "")
+        new_access_token = create_access_token(new_jti, user_id, JWT_SECRET_KEY)
+        new_refresh_token = create_refresh_token(new_jti, user_id, JWT_SECRET_KEY)
+        
+        # 7. 기존 jti 매핑 삭제 및 새 jti 매핑 저장
+        redis_client.delete(f"jti:{jti}")
+        redis_client.setex(f"jti:{new_jti}", SESSION_CACHE_TTL, global_session_key)
+        
+        return TokenRefreshResponse(
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            global_session_key=global_session_key,
+            jti=new_jti,
+        )
+
+    def close_session_by_token(self, token: str, close_reason: str | None = None) -> SessionCloseResponse:
+        """토큰 기반 세션 종료
+        
+        Args:
+            token: Access Token 문자열
+            close_reason: 종료 사유
+            
+        Returns:
+            SessionCloseResponse: 세션 종료 응답
+        """
+        from app.core.jwt_auth import get_global_session_key_from_token
+        
+        # 1. 토큰에서 global_session_key 조회
+        global_session_key = get_global_session_key_from_token(token)
+        
+        # 2. 기존 close_session 로직 사용
+        request = SessionCloseRequest(
+            global_session_key=global_session_key,
+            close_reason=close_reason,
+        )
+        return self.close_session(request)
 
     def close_session(self, request: SessionCloseRequest, background_tasks: BackgroundTasks | None = None) -> SessionCloseResponse:
         """세션 종료 (MA → SM)

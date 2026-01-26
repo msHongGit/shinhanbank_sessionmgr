@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 # 모든 환경에서 REDIS_URL 필수
 # - 로컬: .env 파일에 Azure Redis 설정
 # - CI: GitHub Actions workflow에서 설정
-from app.config import AGW_API_KEY, MA_API_KEY, PORTAL_API_KEY, VDB_API_KEY
 
 # v4.0: 테스트에서는 실제 Redis를 사용하고, Profile만 Mock으로 주입
 from app.main import app
@@ -59,31 +58,78 @@ def reset_mock_repositories():
     yield
 
 
-# ============ API Keys (호출자별) ============
+# ============ Test Headers (JWT 기반 인증으로 전환, API Key 제거) ============
 
 
 @pytest.fixture
 def agw_headers():
-    """AGW API headers"""
-    return {"X-API-Key": AGW_API_KEY, "Content-Type": "application/json"}
+    """AGW API headers (API Key 제거됨, Content-Type만 유지)"""
+    return {"Content-Type": "application/json"}
 
 
 @pytest.fixture
 def ma_headers():
-    """MA API headers"""
-    return {"X-API-Key": MA_API_KEY, "Content-Type": "application/json"}
+    """MA API headers (API Key 제거됨, Content-Type만 유지)"""
+    return {"Content-Type": "application/json"}
 
 
 @pytest.fixture
 def portal_headers():
-    """Portal API headers"""
-    return {"X-API-Key": PORTAL_API_KEY, "Content-Type": "application/json"}
+    """Portal API headers (API Key 제거됨, Content-Type만 유지)"""
+    return {"Content-Type": "application/json"}
 
 
 @pytest.fixture
 def vdb_headers():
-    """VDB API headers"""
-    return {"X-API-Key": VDB_API_KEY, "Content-Type": "application/json"}
+    """VDB API headers (API Key 제거됨, Content-Type만 유지)"""
+    return {"Content-Type": "application/json"}
+
+
+@pytest.fixture
+def jwt_headers(access_token):
+    """JWT 토큰 기반 헤더"""
+    return {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+
+@pytest.fixture
+def access_token(client, agw_headers):
+    """Access Token 생성 (세션 생성 후 토큰 추출)"""
+    request_data = {
+        "userId": "0616001905",
+    }
+    response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
+    assert response.status_code == 201
+    data = response.json()
+    return data["access_token"]
+
+
+@pytest.fixture
+def refresh_token(client, agw_headers):
+    """Refresh Token 생성 (세션 생성 후 토큰 추출)"""
+    request_data = {
+        "userId": "0616001905",
+    }
+    response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
+    assert response.status_code == 201
+    data = response.json()
+    return data["refresh_token"]
+
+
+@pytest.fixture
+def session_with_tokens(client, agw_headers):
+    """세션 생성 및 토큰 정보 반환"""
+    request_data = {
+        "userId": "0616001905",
+    }
+    response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
+    assert response.status_code == 201
+    data = response.json()
+    return {
+        "global_session_key": data["global_session_key"],
+        "access_token": data["access_token"],
+        "refresh_token": data["refresh_token"],
+        "jti": data["jti"],
+    }
 
 
 # ============ Sample Data ============

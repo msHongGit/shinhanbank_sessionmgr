@@ -7,9 +7,9 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
-from app.core.auth import APIKeyType, require_api_key
+from app.core.jwt_auth import extract_token_from_request
 from app.schemas.common import (
     AgentType,
     SessionCloseRequest,
@@ -22,7 +22,10 @@ from app.schemas.common import (
     SessionPingResponse,
     SessionResolveRequest,
     SessionResolveResponse,
+    SessionVerifyResponse,
     SolApiResultRequest,
+    TokenRefreshRequest,
+    TokenRefreshResponse,
     TurnResponse,
 )
 from app.services.session_service import SessionService
@@ -60,7 +63,12 @@ def get_session_service() -> SessionService:
         - eventChannel: 호출 채널 (예: web, kiosk 등)
 
     주요 응답 필드:
-    - global_session_key: 이후 모든 호출에서 사용하는 세션 키 (그 외 메타데이터는 조회 API에서 확인)
+    - global_session_key: Global 세션 키
+    - access_token: Access Token (JWT)
+    - refresh_token: Refresh Token (JWT)
+    - jti: JWT ID
+    
+    참고: AGW는 이 정보를 받아 Client에는 토큰만 전달합니다.
     """,
 )
 async def create_session(
@@ -69,13 +77,122 @@ async def create_session(
     service: SessionService = Depends(get_session_service),
 ):
     """
-    세션 생성 API
+    세션 생성 API - JWT 토큰 발급 포함
 
     - AGW: Agent Gateway가 초기 세션 생성
-    - Client: 사용자 앱이 직접 세션 생성
     - 프로파일 자동 조회: user_id로 Profile DB에서 프로파일 조회 및 세션에 포함
+    - JWT 토큰 발급: Access Token 및 Refresh Token 자동 발급
     """
     return service.create_session(request, background_tasks)
+
+
+# ============ JWT Token Verification & Refresh (구체적인 경로를 먼저 정의) ============
+# 주의: FastAPI는 라우트를 등록한 순서대로 매칭하므로,
+# 구체적인 경로(/ping, /verify, /refresh)를 동적 경로(/{global_session_key})보다 먼저 정의해야 합니다.
+
+
+@router.get(
+    "/ping",
+    response_model=SessionPingResponse,
+    summary="세션 생존 확인",
+    description="""
+    세션이 살아있는지 확인합니다 (TTL 연장 없음).
+
+    경로에서 global_session_key 제거, 토큰에서 추출합니다.
+    
+    요청:
+    - 헤더: Authorization: Bearer <access_token> 또는 쿠키의 access_token
+
+    주요 응답 필드:
+    - is_alive: 세션 존재 여부 (false면 세션이 없거나 만료됨)
+    - expires_at: 현재 만료 시각 (is_alive=false이면 null, TTL 연장 안 함)
+    """,
+)
+async def ping_session(
+    request: Request,
+    service: SessionService = Depends(get_session_service),
+):
+    """세션 Ping API (토큰 기반, TTL 연장 없음)"""
+    token = extract_token_from_request(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token required")
+    
+    return service.ping_session_by_token(token)
+
+
+@router.get(
+    "/verify",
+    response_model=SessionVerifyResponse,
+    summary="토큰 검증 및 세션 정보 조회",
+    description="""
+    Access Token을 검증하고 global_session_key 및 세션 정보를 반환합니다.
+    
+    AGW가 invoke 전에 호출하여 global_session_key를 획득합니다.
+    
+    요청:
+    - 헤더: Authorization: Bearer <access_token> 또는 쿠키의 access_token
+    
+    응답:
+    - global_session_key: Global 세션 키
+    - user_id: 사용자 ID
+    - session_state: 세션 상태
+    - is_alive: 세션 생존 여부
+    - expires_at: 만료 시각
+    """,
+)
+async def verify_token_and_get_session(
+    request: Request,
+    service: SessionService = Depends(get_session_service),
+):
+    """토큰 검증 및 세션 정보 조회 API"""
+    token = extract_token_from_request(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token required")
+    
+    return service.verify_token_and_get_session(token)
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenRefreshResponse,
+    summary="토큰 갱신",
+    description="""
+    Refresh Token으로 새 Access Token과 Refresh Token을 발급합니다.
+    
+    세션 TTL도 함께 연장됩니다.
+    
+    요청:
+    - 헤더: Authorization: Bearer <refresh_token> 또는 쿠키의 refresh_token
+    - 또는 요청 body에 refresh_token 포함
+    
+    응답:
+    - access_token: 새 Access Token
+    - refresh_token: 새 Refresh Token (Refresh Token Rotation)
+    - global_session_key: Global 세션 키 (AGW에만 전달)
+    - jti: JWT ID
+    """,
+)
+async def refresh_token(
+    request: Request,
+    refresh_request: TokenRefreshRequest | None = None,
+    service: SessionService = Depends(get_session_service),
+):
+    """토큰 갱신 API"""
+    # Refresh Token 추출 (쿠키 우선, 없으면 요청 body)
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token and refresh_request:
+        refresh_token = refresh_request.refresh_token
+    
+    if not refresh_token:
+        # 헤더에서도 시도
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            refresh_token = auth_header[7:]
+    
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token required")
+    
+    return service.refresh_token(refresh_token)
 
 
 # ============ 세션 조회 ============
@@ -125,32 +242,6 @@ async def get_session(
         agent_id=agent_id,
     )
     return service.resolve_session(request)
-
-
-# ============ 세션 Ping (생존 확인 및 TTL 연장) ============
-
-
-@router.get(
-    "/{global_session_key}/ping",
-    response_model=SessionPingResponse,
-    summary="세션 생존 확인 및 TTL 연장",
-    description="""
-    세션이 살아있는지 간략히 조회하고, 살아있다면 TTL을 연장합니다.
-
-    필수 경로 변수:
-    - global_session_key: Ping 대상 세션 키
-
-    주요 응답 필드:
-    - is_alive: 세션 존재 여부 (false면 세션이 없거나 만료됨)
-    - expires_at: TTL 연장 후 만료 예정 시각 (is_alive=false이면 null)
-    """,
-)
-async def ping_session(
-    global_session_key: str,
-    service: SessionService = Depends(get_session_service),
-):
-    """세션 Ping API (헬스체크/TTL 연장용)."""
-    return service.ping_session(global_session_key)
 
 
 # ============ 세션 상태 업데이트 ============
@@ -212,9 +303,9 @@ async def update_session_state(
 @router.delete(
     "/{global_session_key}",
     response_model=SessionCloseResponse,
-    summary="세션 종료",
+    summary="세션 종료 (내부 서비스용)",
     description="""
-    세션을 종료합니다.
+    세션을 종료합니다 (Master Agent 전용).
 
     필수 경로 변수:
     - global_session_key: 종료할 세션 키
@@ -226,25 +317,63 @@ async def update_session_state(
     - status: 처리 결과 (success)
     - closed_at: 세션 종료 시각
     - archived_conversation_id: 세션 기준 아카이브 ID (arch_{global_session_key})
+    
+    참고: Client/AGW는 토큰 기반 DELETE /api/v1/sessions 엔드포인트를 사용합니다.
     """,
 )
-async def close_session(
+async def close_session_by_key(
     global_session_key: str,
     close_reason: str | None = Query(None, description="종료 사유 (옵션)"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     service: SessionService = Depends(get_session_service),
 ):
     """
-    세션 종료 API
-
-    - MA: 대화 종료 시 호출
-    - Client: 사용자가 앱 종료 시 호출
+    세션 종료 API (Master Agent 전용, global_session_key 경로 사용)
     """
     request = SessionCloseRequest(
         global_session_key=global_session_key,
         close_reason=close_reason,
     )
     return service.close_session(request, background_tasks)
+
+
+@router.delete(
+    "",
+    response_model=SessionCloseResponse,
+    summary="세션 종료 (토큰 기반)",
+    description="""
+    세션을 종료합니다 (토큰 기반).
+
+    경로에서 global_session_key 제거, 토큰에서 추출합니다.
+    
+    요청:
+    - 헤더: Authorization: Bearer <access_token> 또는 쿠키의 access_token
+
+    선택 쿼리 파라미터:
+    - close_reason: 종료 사유 (user_exit, timeout 등)
+
+    주요 응답 필드:
+    - status: 처리 결과 (success)
+    - closed_at: 세션 종료 시각
+    - archived_conversation_id: 세션 기준 아카이브 ID
+    """,
+)
+async def close_session(
+    request: Request,
+    close_reason: str | None = Query(None, description="종료 사유 (옵션)"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    service: SessionService = Depends(get_session_service),
+):
+    """
+    세션 종료 API (토큰 기반)
+    
+    - Client: 사용자가 앱 종료 시 호출
+    """
+    token = extract_token_from_request(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token required")
+    
+    return service.close_session_by_token(token, close_reason)
 
 
 # ============ 실시간 API 연동 결과 저장 ============

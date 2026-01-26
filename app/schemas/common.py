@@ -229,10 +229,12 @@ class SessionCreateRequest(BaseModel):
 
 
 class SessionCreateResponse(BaseModel):
-    """초기 세션 생성 응답"""
+    """초기 세션 생성 응답 (AGW에만 전달)"""
 
-    # 외부 응답은 Global 세션 키만 노출 (나머지 메타데이터는 내부/조회용)
     global_session_key: str = Field(..., description="Global 세션 키")
+    access_token: str = Field(..., description="Access Token")
+    refresh_token: str = Field(..., description="Refresh Token")
+    jti: str = Field(..., description="JWT ID")
 
 
 # ============ Session Resolve (from ma.py) ============
@@ -365,11 +367,10 @@ class SessionPatchResponse(BaseModel):
 
 
 class SessionPingResponse(BaseModel):
-    """세션 생존 여부 및 TTL 연장 응답"""
+    """세션 생존 여부 확인 응답 (TTL 연장 없음)"""
 
-    global_session_key: str = Field(..., description="Global 세션 키")
     is_alive: bool = Field(..., description="세션이 살아있는지 여부")
-    expires_at: datetime | None = Field(None, description="연장 후 만료 시각 (세션이 없으면 null)")
+    expires_at: datetime | None = Field(None, description="현재 만료 시각 (세션이 없으면 null, TTL 연장 안 함)")
 
 
 # ============ Session Close (from ma.py) ============
@@ -508,3 +509,31 @@ class SessionFullResponse(BaseModel):
     session: dict[str, Any] = Field(..., description="세션 메타데이터 (SessionResolveResponse 구조)")
     turns: list[dict[str, Any]] = Field(default_factory=list, description="턴 메타데이터 목록")
     total_turns: int = Field(..., description="전체 턴 수")
+
+
+# ============ JWT Token Verification & Refresh ============
+
+
+class SessionVerifyResponse(BaseModel):
+    """토큰 검증 및 세션 정보 조회 응답"""
+
+    global_session_key: str = Field(..., description="Global 세션 키")
+    user_id: str = Field(..., description="사용자 ID")
+    session_state: str = Field(..., description="세션 상태")
+    is_alive: bool = Field(..., description="세션 생존 여부")
+    expires_at: datetime | None = Field(None, description="만료 시각")
+
+
+class TokenRefreshRequest(BaseModel):
+    """토큰 갱신 요청"""
+
+    refresh_token: str | None = Field(None, description="Refresh Token (쿠키 또는 헤더에서 추출)")
+
+
+class TokenRefreshResponse(BaseModel):
+    """토큰 갱신 응답"""
+
+    access_token: str = Field(..., description="새 Access Token")
+    refresh_token: str = Field(..., description="새 Refresh Token")
+    global_session_key: str = Field(..., description="Global 세션 키 (AGW에만 전달)")
+    jti: str = Field(..., description="JWT ID")

@@ -1,7 +1,4 @@
 """Session Manager - Main Application (v5.0, Sprint 5).
-
-세션 상태 / 컨텍스트 메타데이터 / 에이전트 세션 매핑 관리 API 진입점.
-Sprint 5 구현: Redis 기반 세션/컨텍스트 관리 (Redis만 사용)
 """
 
 from contextlib import asynccontextmanager
@@ -39,15 +36,14 @@ app = FastAPI(
         """
         ## Session Manager v5.0 (Sprint 5)
 
-        은행 AI Agent 시스템의 세션/컨텍스트 관리 서비스
+       세션/컨텍스트 관리 서비스
 
         ### 주요 기능
 
         **세션 관리**
-        - 세션 생성/조회/상태 업데이트/종료/Ping (TTL 연장)
+        - 세션 생성/조회/상태 업데이트/종료/Ping
         - 세션 상태 관리: start / talk / end
-        - SubAgent 상태 관리: undefined / continue / end
-        - Global 세션 ↔ 업무 Agent 세션 키 매핑
+        - JWT 토큰 기반 인증 (Access Token, Refresh Token)
 
         **멀티턴 컨텍스트**
         - `reference_information` 을 통한 대화 이력 관리
@@ -65,11 +61,14 @@ app = FastAPI(
         ### 주요 API 엔드포인트
 
         **Sessions API** (`/api/v1/sessions`)
-        - `POST /sessions` - 세션 생성
+        - `POST /sessions` - 세션 생성 (JWT 토큰 발급)
         - `GET /sessions/{key}` - 세션 조회
-        - `GET /sessions/{key}/ping` - 세션 생존 확인 및 TTL 연장
+        - `GET /sessions/ping` - 세션 생존 확인 (토큰 기반, TTL 연장 없음)
+        - `GET /sessions/verify` - 토큰 검증 및 세션 정보 조회
+        - `POST /sessions/refresh` - 토큰 갱신 (Refresh Token Rotation)
         - `PATCH /sessions/{key}/state` - 세션 상태 업데이트
-        - `DELETE /sessions/{key}` - 세션 종료
+        - `DELETE /sessions/{key}` - 세션 종료 (내부 서비스용)
+        - `DELETE /sessions` - 세션 종료 (토큰 기반)
         - `POST /sessions/{key}/api-results` - 실시간 API 연동 결과 저장
         - `GET /sessions/{key}/full` - 세션 전체 정보 조회 (세션 + 턴 목록)
 
@@ -79,7 +78,7 @@ app = FastAPI(
 
         ### 환경
 
-        - 로컬/Dev/운영: Redis 기반 (환경변수 기반 설정, API Key 인증 활성화 가능)
+        - 로컬/Dev/운영: Redis 기반 (환경변수 기반 설정, JWT 토큰 기반 인증)
         """
     ),
     version="5.0.0",

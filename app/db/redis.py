@@ -109,3 +109,29 @@ class RedisHelper:
         count = self.client.llen(f"turns:{global_session_key}")
         self.client.delete(f"turns:{global_session_key}")
         return count
+
+    # ============ JTI Mapping ============
+
+    def set_jti_mapping(self, jti: str, global_session_key: str, ttl: int = 300) -> None:
+        """jti -> global_session_key 매핑 저장
+        
+        Args:
+            jti: JWT ID (UUID)
+            global_session_key: Global 세션 키
+            ttl: TTL (초 단위, 기본값 300초)
+        """
+        self.client.setex(f"jti:{jti}", ttl, global_session_key)
+
+    def get_global_session_key_by_jti(self, jti: str) -> str | None:
+        """jti로 global_session_key 조회
+        
+        Args:
+            jti: JWT ID (UUID)
+            
+        Returns:
+            global_session_key 또는 None
+        """
+        result = self.client.get(f"jti:{jti}")
+        if result:
+            return result if isinstance(result, str) else result.decode()
+        return None

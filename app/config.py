@@ -28,13 +28,7 @@ SESSION_CACHE_TTL: int = int(os.getenv("SESSION_CACHE_TTL", "300"))
 # === Session ID Prefix ===
 GLOBAL_SESSION_PREFIX: str = os.getenv("GLOBAL_SESSION_PREFIX", "gsess")
 
-# === API Keys (호출자별) ===
-AGW_API_KEY: str = os.getenv("AGW_API_KEY", "")
-MA_API_KEY: str = os.getenv("MA_API_KEY", "")
-PORTAL_API_KEY: str = os.getenv("PORTAL_API_KEY", "")
-VDB_API_KEY: str = os.getenv("VDB_API_KEY", "")
-CLIENT_API_KEY: str = os.getenv("CLIENT_API_KEY", "")
-EXTERNAL_API_KEY: str = os.getenv("EXTERNAL_API_KEY", "")  # Sprint 3
-
-# === Auth (Sprint 2: 기본 비활성화, 운영에서만 활성화 권장) ===
-ENABLE_API_KEY_AUTH: bool = os.getenv("ENABLE_API_KEY_AUTH", "false").lower() == "true"
+# === JWT Configuration ===
+JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "5"))
+JWT_REFRESH_TOKEN_EXPIRE_HOURS: int = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_HOURS", "1"))
