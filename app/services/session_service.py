@@ -30,6 +30,9 @@ from app.schemas.common import (
     DialogContext,
     DialogTurn,
     LastEvent,
+    ProfileAttribute,
+    RealtimePersonalContextRequest,
+    RealtimePersonalContextResponse,
     SessionCloseRequest,
     SessionCloseResponse,
     SessionCreateRequest,
@@ -137,6 +140,81 @@ class SessionService:
 
         return None
 
+    def _merge_profiles(
+        self,
+        batch_profile: CustomerProfile | None,
+        realtime_profile: dict[str, Any] | None,
+    ) -> CustomerProfile | None:
+        """배치 프로파일과 실시간 프로파일 통합 (실시간 우선)
+
+        Args:
+            batch_profile: 배치 프로파일
+            realtime_profile: 실시간 프로파일 (dict, redis_data.md 구조)
+
+        Returns:
+            통합된 CustomerProfile 또는 None
+        """
+        if not batch_profile and not realtime_profile:
+            return None
+
+        # 실시간 프로파일이 있으면 우선 사용
+        if realtime_profile:
+            # 실시간 프로파일의 모든 필드를 속성으로 변환
+            attributes = []
+            segment = None
+
+            for key, value in realtime_profile.items():
+                if value is not None and value != "":
+                    attributes.append(
+                        ProfileAttribute(
+                            key=key,
+                            value=str(value),
+                            source_system="REALTIME",
+                        )
+                    )
+
+                    # 세그먼트 관련 필드 추출 (membGdS2 등)
+                    if key == "membGdS2":
+                        segment = str(value)
+
+            return CustomerProfile(
+                user_id=realtime_profile.get(
+                    "cusnoS10", batch_profile.user_id if batch_profile else ""
+                ),
+                attributes=attributes,
+                segment=segment,
+                preferences={"source": "realtime"},
+            )
+
+        # 실시간 프로파일이 없으면 배치 프로파일 사용
+        return batch_profile
+
+    def get_merged_profile(self, user_id: str) -> CustomerProfile | None:
+        """배치 + 실시간 프로파일 통합 조회
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            통합된 CustomerProfile (실시간 우선)
+        """
+        # 배치 프로파일 조회
+        batch_profile = None
+        if self.profile_repo:
+            batch_profile = self.profile_repo.get_profile(
+                user_id=user_id, context_id=None
+            )
+
+        # 실시간 프로파일 조회
+        from app.db.redis import RedisHelper, get_redis_client
+
+        redis_client = get_redis_client()
+        helper = RedisHelper(redis_client)
+        realtime_profile = helper.get_realtime_profile(user_id)
+
+        # 통합
+        return self._merge_profiles(batch_profile, realtime_profile)
+
     # ============ AGW API ============
 
     def create_session(self, request: SessionCreateRequest, background_tasks: BackgroundTasks | None = None) -> SessionCreateResponse:
@@ -150,17 +228,12 @@ class SessionService:
         # Session Manager가 Global Session Key 생성
         global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
 
-        # 고객 프로파일 조회 (Profile Repository)
+        # 고객 프로파일 조회 (통합 프로파일: 배치 + 실시간)
         profile_data = None
-        if self.profile_repo:
-            customer_profile = self.profile_repo.get_profile(
-                user_id=request.user_id,
-                context_id=None,  # context_id 제거됨
-                background_tasks=background_tasks,
-            )
-            if customer_profile:
-                # Redis 스냅샷 저장용 raw dict (조회 응답에서 사용)
-                profile_data = customer_profile.model_dump()
+        merged_profile = self.get_merged_profile(request.user_id)
+        if merged_profile:
+            # Redis 스냅샷 저장용 raw dict (조회 응답에서 사용)
+            profile_data = merged_profile.model_dump()
 
         # 채널 및 세션 진입 유형은 channel 정보에서 파생 (없으면 기본값 사용)
         start_type_value: str | None = None
@@ -319,6 +392,10 @@ class SessionService:
         # 세션 상태는 전달된 경우에만 변경
         if request.session_state is not None:
             updates["session_state"] = request.session_state.value
+            
+            # Invoke 시(사용자 메시지 전송 시) TTL 연장 (jwd.md 설계: Sliding Expiration on Invoke)
+            if request.session_state == SessionState.TALK:
+                self.session_repo.refresh_ttl(request.global_session_key)
 
         patch = request.state_patch
         if patch is not None:
@@ -561,8 +638,8 @@ class SessionService:
         
         global_session_key = global_session_key if isinstance(global_session_key, str) else global_session_key.decode()
         
-        # 4. 세션 TTL 연장
-        self.session_repo.refresh_ttl(global_session_key)
+        # 4. 세션 TTL 연장하지 않음 (jwd.md 설계: Refresh Token 갱신은 연결 유지만, 실제 사용자 활동 없음)
+        # TTL 연장은 Invoke 시(사용자 메시지 전송 시)에만 수행됨
         
         # 5. 새 jti 생성 (Refresh Token Rotation)
         from uuid import uuid4
@@ -637,6 +714,47 @@ class SessionService:
             closed_at=now,
             archived_conversation_id=archived_id,
             cleaned_local_sessions=0,
+        )
+
+    def update_realtime_personal_context(
+        self,
+        global_session_key: str,
+        request: RealtimePersonalContextRequest,
+    ) -> RealtimePersonalContextResponse:
+        """실시간 프로파일 업데이트
+
+        Args:
+            global_session_key: 세션 키
+            request: 실시간 프로파일 요청
+
+        Returns:
+            RealtimePersonalContextResponse
+        """
+        from app.db.redis import RedisHelper, get_redis_client
+
+        # 1. Redis에 실시간 프로파일 저장
+        redis_client = get_redis_client()
+        helper = RedisHelper(redis_client)
+        helper.set_realtime_profile(request.user_id, request.profile_data)
+
+        # 2. 세션 존재 확인
+        session = self.session_repo.get(global_session_key)
+        if not session:
+            raise SessionNotFoundError(global_session_key)
+
+        # 3. 통합 프로파일 조회 및 세션 업데이트
+        merged_profile = self.get_merged_profile(request.user_id)
+        if merged_profile:
+            profile_data = merged_profile.model_dump()
+            self.session_repo.update(
+                global_session_key,
+                customer_profile=safe_json_dumps(profile_data),
+            )
+
+        return RealtimePersonalContextResponse(
+            status="success",
+            user_id=request.user_id,
+            updated_at=datetime.now(UTC),
         )
 
 

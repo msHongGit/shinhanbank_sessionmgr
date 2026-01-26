@@ -135,3 +135,32 @@ class RedisHelper:
         if result:
             return result if isinstance(result, str) else result.decode()
         return None
+
+    # ============ 실시간 프로파일 ============
+
+    def get_realtime_profile(self, user_id: str) -> dict[str, Any] | None:
+        """실시간 프로파일 조회
+        
+        Args:
+            user_id: 사용자 ID (10자리 숫자, 예: "0616001905")
+            
+        Returns:
+            실시간 프로파일 데이터 (dict) 또는 None
+        """
+        data = self.client.get(f"profile:realtime:{user_id}")
+        if data:
+            try:
+                return json.loads(data)
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    def set_realtime_profile(self, user_id: str, profile_data: dict[str, Any]) -> None:
+        """실시간 프로파일 저장 (TTL 없음, 영구 저장)
+        
+        Args:
+            user_id: 사용자 ID (10자리 숫자, 예: "0616001905")
+            profile_data: 실시간 프로파일 데이터 (dict, redis_data.md 구조 그대로 저장)
+        """
+        key = f"profile:realtime:{user_id}"
+        self.client.set(key, json.dumps(profile_data, ensure_ascii=False))

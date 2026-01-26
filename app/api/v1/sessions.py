@@ -12,6 +12,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from app.core.jwt_auth import extract_token_from_request
 from app.schemas.common import (
     AgentType,
+    RealtimePersonalContextRequest,
+    RealtimePersonalContextResponse,
     SessionCloseRequest,
     SessionCloseResponse,
     SessionCreateRequest,
@@ -520,3 +522,40 @@ async def get_session_full(
         turns=turns,
         total_turns=len(turns),
     )
+
+
+# ============ 실시간 프로파일 업데이트 ============
+
+
+@router.post(
+    "/{global_session_key}/realtime-personal-context",
+    response_model=RealtimePersonalContextResponse,
+    status_code=200,
+    summary="실시간 프로파일 업데이트",
+    description="""
+    실시간 프로파일을 Redis에 저장하고 세션의 customer_profile 스냅샷을 업데이트합니다.
+    
+    필수 경로 변수:
+    - global_session_key: 세션 키
+    
+    필수 요청 필드:
+    - user_id: 사용자 ID (10자리 숫자)
+    - profile_data: 실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)
+    
+    처리 로직:
+    1. Redis에 profile:realtime:{user_id} 저장 (TTL 없음, 영구 저장)
+    2. 세션의 customer_profile 스냅샷 업데이트 (배치 + 실시간 통합)
+    3. 실시간 프로파일이 배치 프로파일보다 우선순위가 높음
+    
+    호출 시점:
+    - SOL 인증 완료 후 (세션 생성 이후, 사용자 인증 완료 단계)
+    - 호출 주체: AGW (내부 서비스)
+    """,
+)
+async def update_realtime_personal_context(
+    global_session_key: str,
+    request: RealtimePersonalContextRequest,
+    service: SessionService = Depends(get_session_service),
+):
+    """실시간 프로파일 업데이트 API"""
+    return service.update_realtime_personal_context(global_session_key, request)

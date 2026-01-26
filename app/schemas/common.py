@@ -537,3 +537,23 @@ class TokenRefreshResponse(BaseModel):
     refresh_token: str = Field(..., description="새 Refresh Token")
     global_session_key: str = Field(..., description="Global 세션 키 (AGW에만 전달)")
     jti: str = Field(..., description="JWT ID")
+
+
+# ============ 실시간 프로파일 ============
+
+
+class RealtimePersonalContextRequest(BaseModel):
+    """실시간 프로파일 업데이트 요청"""
+
+    user_id: str = Field(..., description="사용자 ID (10자리 숫자, 예: 0616001905)")
+    profile_data: dict[str, Any] = Field(
+        ..., description="실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)"
+    )
+
+
+class RealtimePersonalContextResponse(BaseModel):
+    """실시간 프로파일 업데이트 응답"""
+
+    status: str = Field(..., description="처리 상태")
+    user_id: str = Field(..., description="사용자 ID")
+    updated_at: datetime = Field(..., description="업데이트 시각")

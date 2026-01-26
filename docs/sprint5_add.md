@@ -24,12 +24,11 @@
    └─ Relay(SSE) Server: 쿠키에서 AccessToken 추출 및 검증 (Secret Key로만 검증)
 
 3. 사용자 인증 (Client → SoL WAS)
-   └─ Client가 SoL WAS로 대신 요청 → SoL WAS <-> SSE GW 확인 → 사용자 정보 전달
+   └─ Client가 SoL WAS로 대신 요청(우회 방법) → SoL WAS <-> SSE GW 확인 → 사용자 정보 전달
    └─ 이 시점이 사용자 인증 완료 상태
 
 4. 사용자 정보 저장 (SSE GW → AGW → Session Manager)
    └─ AGW → Session Manager: `POST /api/v1/sessions/{global_session_key}/realtime-personal-context`
-      (내부 서비스이므로 global_session_key 사용)
 
 5. Invoke 시작 (사용자 인증 완료 후)
    ├─ 사용자 인증 완료 전까지는 invoke 불가
