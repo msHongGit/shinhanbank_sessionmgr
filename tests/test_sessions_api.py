@@ -656,3 +656,88 @@ class TestSOLAPIResults:
         assert "sol_api" in turn["metadata"]
         assert turn["metadata"]["sol_api"]["agent"] == "balance_agent"
         assert turn["metadata"]["sol_api"]["response"]["result"] == "SUCCESS"
+
+
+class TestRealtimePersonalContext:
+    """실시간 프로파일 업데이트 테스트"""
+
+    def test_update_realtime_personal_context(self, client, agw_headers, ma_headers):
+        """실시간 프로파일 업데이트 및 세션 스냅샷 업데이트 테스트"""
+        # 1. 세션 생성
+        create_req = {
+            "userId": "0616001905",
+            "channel": {
+                "eventType": "ICON_ENTRY",
+                "eventChannel": "web",
+            },
+        }
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. 실시간 프로파일 업데이트
+        profile_data = {
+            "cusnoS10": "0616001905",
+            "cusSungNmS20": "홍길동",
+            "hpNoS12": "01031286270",
+            "biryrMmddS6": "710115",
+            "onlyAgeN3": 55,
+            "membGdS2": "02",
+            "loginDt": "2026.01.21",
+            "loginTimesS6": "14:23:59",
+        }
+        update_req = {
+            "profile_data": profile_data,
+        }
+        update_resp = client.post(
+            f"/api/v1/sessions/{global_session_key}/realtime-personal-context",
+            json=update_req,
+            headers=ma_headers,
+        )
+        assert update_resp.status_code == 200
+        update_data = update_resp.json()
+        assert update_data["status"] == "success"
+        assert "updated_at" in update_data
+        # user_id는 응답에 포함되지 않음
+        assert "user_id" not in update_data
+
+        # 3. 세션 조회하여 customer_profile이 업데이트되었는지 확인
+        get_resp = client.get(f"/api/v1/sessions/{global_session_key}", headers=ma_headers)
+        assert get_resp.status_code == 200
+        session_data = get_resp.json()
+        
+        # customer_profile이 존재하고 실시간 프로파일 데이터가 포함되어 있는지 확인
+        assert "customer_profile" in session_data
+        assert session_data["customer_profile"] is not None
+        
+        customer_profile = session_data["customer_profile"]
+        assert customer_profile["user_id"] == "0616001905"
+        assert "attributes" in customer_profile
+        
+        # 실시간 프로파일의 주요 필드가 attributes에 포함되어 있는지 확인
+        attributes_dict = {attr["key"]: attr["value"] for attr in customer_profile["attributes"]}
+        assert "cusnoS10" in attributes_dict
+        assert attributes_dict["cusnoS10"] == "0616001905"
+        assert "cusSungNmS20" in attributes_dict
+        assert attributes_dict["cusSungNmS20"] == "홍길동"
+        assert "membGdS2" in attributes_dict
+        assert attributes_dict["membGdS2"] == "02"
+        
+        # segment가 membGdS2 값으로 설정되었는지 확인
+        assert customer_profile["segment"] == "02"
+
+    def test_update_realtime_personal_context_session_not_found(self, client, ma_headers):
+        """존재하지 않는 세션에 대한 실시간 프로파일 업데이트 테스트"""
+        profile_data = {
+            "cusnoS10": "0616001905",
+            "cusSungNmS20": "홍길동",
+        }
+        update_req = {
+            "profile_data": profile_data,
+        }
+        update_resp = client.post(
+            "/api/v1/sessions/nonexistent_session_key/realtime-personal-context",
+            json=update_req,
+            headers=ma_headers,
+        )
+        assert update_resp.status_code == 404

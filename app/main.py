@@ -52,7 +52,8 @@ app = FastAPI(
 
         **개인화 프로파일**
         - 세션 생성 시 user_id 기반 자동 조회 및 스냅샷 저장
-        - 세션 조회 시 customer_profile 필드로 반환
+        - 실시간 프로파일 업데이트 API로 Redis에 영구 저장 및 세션 스냅샷 업데이트
+        - 세션 조회 시 customer_profile 필드로 반환 (배치 + 실시간 통합, 실시간 우선)
 
         **SOL API 연동 로그**
         - 실시간 API 호출 결과를 `turn_id` 기반 메타데이터로 저장
@@ -70,6 +71,7 @@ app = FastAPI(
         - `DELETE /sessions/{key}` - 세션 종료 (내부 서비스용)
         - `DELETE /sessions` - 세션 종료 (토큰 기반)
         - `POST /sessions/{key}/api-results` - 실시간 API 연동 결과 저장
+        - `POST /sessions/{key}/realtime-personal-context` - 실시간 프로파일 업데이트
         - `GET /sessions/{key}/full` - 세션 전체 정보 조회 (세션 + 턴 목록)
 
         ### 저장소

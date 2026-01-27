@@ -732,18 +732,22 @@ class SessionService:
         """
         from app.db.redis import RedisHelper, get_redis_client
 
-        # 1. Redis에 실시간 프로파일 저장
-        redis_client = get_redis_client()
-        helper = RedisHelper(redis_client)
-        helper.set_realtime_profile(request.user_id, request.profile_data)
-
-        # 2. 세션 존재 확인
+        # 1. 세션 존재 확인 및 user_id 추출
         session = self.session_repo.get(global_session_key)
         if not session:
             raise SessionNotFoundError(global_session_key)
+        
+        user_id = session.get("user_id", "")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id not found in session")
+
+        # 2. Redis에 실시간 프로파일 저장
+        redis_client = get_redis_client()
+        helper = RedisHelper(redis_client)
+        helper.set_realtime_profile(user_id, request.profile_data)
 
         # 3. 통합 프로파일 조회 및 세션 업데이트
-        merged_profile = self.get_merged_profile(request.user_id)
+        merged_profile = self.get_merged_profile(user_id)
         if merged_profile:
             profile_data = merged_profile.model_dump()
             self.session_repo.update(
@@ -753,7 +757,6 @@ class SessionService:
 
         return RealtimePersonalContextResponse(
             status="success",
-            user_id=request.user_id,
             updated_at=datetime.now(UTC),
         )
 

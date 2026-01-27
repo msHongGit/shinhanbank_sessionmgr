@@ -1,7 +1,7 @@
 # Redis 데이터 정의서
 
 > 버전: 1.0  
-> 작성일: 2025-01-25 
+> 작성일: 2025-01-25  
 
 ---
 
@@ -304,7 +304,7 @@ EXPIRE turns:gsess_20260108123456_abcd12 300
 
 ### 5.1 실시간 프로파일
 
-**Key**: `profile:realtime:{user_id}`  
+**Key**: `profile:realtime:{user_id}`
 **user_id**: 숫자 10자리 (cusnoS10 값, 예: `0616001905`)
 
 | 속성 | 값 |
@@ -416,7 +416,7 @@ KEYS profile:realtime:*
 
 ### 5.2 배치 프로파일 (일 기준)
 
-**Key**: `profile:batch:daily:{user_id}`  
+**Key**: `profile:batch:daily:{user_id}`
 **user_id**: 숫자 10자리 (cusnoS10 값, 예: `0616001905`)
 
 | 속성 | 값 |
@@ -470,7 +470,7 @@ KEYS profile:batch:daily:*
 
 ### 5.3 배치 프로파일 (월 기준)
 
-**Key**: `profile:batch:monthly:{user_id}`  
+**Key**: `profile:batch:monthly:{user_id}`
 **user_id**: 숫자 10자리 (cusnoS10 값, 예: `0616001905`)
 
 | 속성 | 값 |

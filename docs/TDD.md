@@ -265,7 +265,7 @@ def test_save_sol_api_result_as_turn_metadata(client, agw_headers, ma_headers):
 def test_get_session_full_info(client, agw_headers, ma_headers):
     """세션 전체 정보 조회 (세션 + 턴 목록)"""
     # 세션 생성 → 턴 저장 → 전체 정보 조회 검증
-    pass
+        pass
 ```
 
 ### 2. **Service Layer Tests**

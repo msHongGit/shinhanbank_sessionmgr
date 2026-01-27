@@ -20,8 +20,8 @@
       ⚠️ global_session_key는 Client에 전달하지 않음
 
 2. SSE 연결 설정 (Client → Relay Server)
-   ├─ Client: 쿠키에 AccessToken 포함하여 SSE 연결 요청
-   └─ Relay(SSE) Server: 쿠키에서 AccessToken 추출 및 검증 (Secret Key로만 검증)
+   ├─ Client: 헤더에 AccessToken 포함하여 SSE 연결 요청 (`Authorization: Bearer <access_token>`)
+   └─ Relay(SSE) Server: 헤더에서 AccessToken 추출 및 검증 (Secret Key로만 검증)
 
 3. 사용자 인증 (Client → SoL WAS)
    └─ Client가 SoL WAS로 대신 요청(우회 방법) → SoL WAS <-> SSE GW 확인 → 사용자 정보 전달
@@ -209,18 +209,18 @@ Refresh Token으로 새 Access Token 발급 시 Session Manager가 수행하는 
 2. jti 추출 → global_session_key 조회
 3. 세션 종료 처리
 
-#### Relay Server 연동
-- Client → Relay(SSE) Server: 쿠키에 AccessToken 포함하여 SSE 연결 요청
+#### Relay Server 검증
+- Client → Relay(SSE) Server: 헤더에 AccessToken 포함하여 SSE 연결 요청 (`Authorization: Bearer <access_token>`)
 - Relay 서버 검증 프로세스:
-  1. 쿠키에서 AccessToken 추출
+  1. 헤더에서 AccessToken 추출 (`Authorization: Bearer <access_token>`)
   2. JWT 서명 검증: Secret Key로 서명 검증
   3. 만료 시간 확인: `exp` 필드 확인
   4. 토큰 타입 확인: `type: "access"` 확인
-- ⚠️ Redis 조회는 수행하지 않음 (Secret Key 검증만으로 충분)
+- ⚠️ Redis 조회는 수행하지 않음 (Secret Key 검증만으로 충분)ㄴ
 
 #### 클라이언트 요청
 - Client → AGW: `Authorization: Bearer <JWT>` 또는 쿠키의 AccessToken 사용
-- Client → SSE 연결 요청: 쿠키에 AccessToken 포함
+- Client → SSE 연결 요청: 헤더에 AccessToken 포함 (`Authorization: Bearer <access_token>`)
 - ⚠️ Client는 global_session_key를 알지 못함 (토큰만 사용)
 
 #### 토큰 만료와 재연결

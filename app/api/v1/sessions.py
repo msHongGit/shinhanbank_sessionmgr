@@ -539,8 +539,10 @@ async def get_session_full(
     - global_session_key: 세션 키
     
     필수 요청 필드:
-    - user_id: 사용자 ID (10자리 숫자)
     - profile_data: 실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)
+    
+    참고:
+    - user_id는 세션에서 자동으로 추출됩니다 (global_session_key로 세션 조회)
     
     처리 로직:
     1. Redis에 profile:realtime:{user_id} 저장 (TTL 없음, 영구 저장)
