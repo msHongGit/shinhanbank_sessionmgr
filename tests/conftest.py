@@ -24,16 +24,48 @@ from app.schemas import (
 from app.services.session_service import SessionService
 
 
+class MockBatchProfileRepository:
+    """Mock Batch Profile Repository for testing"""
+    
+    def __init__(self):
+        self._batch_profiles = {
+            "0616001905": {
+                "daily": {
+                    "CUSNO": "0616001905",
+                    "STD_DT": "20250121",
+                    "LM1_SDD_ILBAN_BOYU_ACNT": 1000000,
+                    "LM1_MMF_BOYU_ACNT": 500000,
+                },
+                "monthly": {
+                    "CUSNO": "0616001905",
+                    "STD_YM": "202501",
+                    "LM1_SDD_ILBAN_BOYU_ACNT": 1000000,
+                    "LM1_MMF_BOYU_ACNT": 500000,
+                }
+            }
+        }
+    
+    def get_batch_profile(self, user_id: str):
+        """배치 프로파일 조회"""
+        return self._batch_profiles.get(user_id)
+    
+    def get_profile(self, user_id: str, context_id: str | None = None, **kwargs):
+        """기존 프로파일 조회 (호환성을 위해 None 반환)"""
+        # get_merged_profile에서 호출되지만, 배치 프로파일은 get_batch_profile로 조회
+        return None
+
+
 @pytest.fixture
 def client():
     """FastAPI TestClient using real Redis for sessions/contexts and Mock profile data."""
 
     from app.api.v1.sessions import get_session_service
 
-    profile_repo = MockProfileRepository()
+    # Batch Profile Repository를 Mock으로 주입
+    profile_repo = MockBatchProfileRepository()
 
     # SessionService는 기본적으로 RedisSessionRepository를 사용하고,
-    # 여기서 Profile Repository만 Mock 으로 주입한다.
+    # 여기서 Batch Profile Repository만 Mock 으로 주입한다.
     def override_session_service():
         return SessionService(profile_repo=profile_repo)
 

@@ -66,7 +66,7 @@ app = FastAPI(
         - `GET /sessions/{key}` - 세션 조회
         - `GET /sessions/ping` - 세션 생존 확인 (토큰 기반, TTL 연장 없음)
         - `GET /sessions/verify` - 토큰 검증 및 세션 정보 조회
-        - `POST /sessions/refresh` - 토큰 갱신 (Refresh Token Rotation)
+        - `POST /sessions/refresh` - 토큰 갱신 (Refresh Token Rotation, 세션 TTL 연장)
         - `PATCH /sessions/{key}/state` - 세션 상태 업데이트
         - `DELETE /sessions/{key}` - 세션 종료 (내부 서비스용)
         - `DELETE /sessions` - 세션 종료 (토큰 기반)

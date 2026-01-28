@@ -273,7 +273,15 @@ class SessionResolveResponse(BaseModel):
     last_event: LastEvent | None = Field(None, description="마지막 이벤트")
     customer_profile: CustomerProfile | None = Field(
         None,
-        description="세션에 연결된 고객 프로파일 (옵션)",
+        description="통합 고객 프로파일 (배치 + 실시간 통합, 실시간 우선)",
+    )
+    batch_profile: dict[str, Any] | None = Field(
+        None,
+        description="배치 프로파일 스냅샷 (일별+월별)",
+    )
+    realtime_profile: dict[str, Any] | None = Field(
+        None,
+        description="실시간 프로파일 스냅샷",
     )
 
     # 멀티턴 컨텍스트 필드 (mulititurn.md 옵션 A)
@@ -545,6 +553,7 @@ class TokenRefreshResponse(BaseModel):
 class RealtimePersonalContextRequest(BaseModel):
     """실시간 프로파일 업데이트 요청"""
 
+    global_session_key: str = Field(..., description="Global 세션 키")
     profile_data: dict[str, Any] = Field(
         ..., description="실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)"
     )

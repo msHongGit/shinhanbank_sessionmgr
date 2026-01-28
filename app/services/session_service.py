@@ -222,18 +222,24 @@ class SessionService:
 
         세션 생성 흐름:
         1. 세션 객체 생성
-        2. 고객 프로파일 조회 (Profile Repository에서)
+        2. 실시간 프로파일만 조회 (배치 프로파일은 CUSNO 없어서 조회 불가)
         3. Redis 즉시 저장 (세션 스냅샷)
         """
         # Session Manager가 Global Session Key 생성
         global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
 
-        # 고객 프로파일 조회 (통합 프로파일: 배치 + 실시간)
+        # 고객 프로파일 조회 (실시간 프로파일만, 배치 프로파일은 나중에)
         profile_data = None
-        merged_profile = self.get_merged_profile(request.user_id)
-        if merged_profile:
-            # Redis 스냅샷 저장용 raw dict (조회 응답에서 사용)
-            profile_data = merged_profile.model_dump()
+        
+        # 실시간 프로파일만 조회 (배치 프로파일은 실시간 프로파일 저장 시 조회)
+        from app.db.redis import RedisHelper, get_redis_client
+        redis_client = get_redis_client()
+        helper = RedisHelper(redis_client)
+        realtime_profile = helper.get_realtime_profile(request.user_id)
+        
+        if realtime_profile:
+            # 실시간 프로파일만 있으면 그것만 저장
+            profile_data = {"realtime": realtime_profile}
 
         # 채널 및 세션 진입 유형은 channel 정보에서 파생 (없으면 기본값 사용)
         start_type_value: str | None = None
@@ -353,9 +359,31 @@ class SessionService:
         # 현재는 최소 필드(round-trip 보장용)만 제공하고 dialog_context 는 None 으로 둔다.
         dialog_context: DialogContext | None = None
 
+        # 배치 프로파일 조회
+        user_id = session.get("user_id", "")
+        batch_profile_data = None
+        from app.db.redis import RedisHelper, get_redis_client
+        redis_client = get_redis_client()
+        helper = RedisHelper(redis_client)
+        
+        # Redis에서 배치 프로파일 조회
+        batch_profile_data = helper.get_batch_profile(user_id)
+        
+        # Redis에 없으면 MariaDB에서 조회하여 저장
+        if not batch_profile_data and self.profile_repo:
+            batch_profile_data = self.profile_repo.get_batch_profile(user_id)
+            if batch_profile_data:
+                helper.set_batch_profile(user_id, batch_profile_data)
+        
+        # 실시간 프로파일 조회
+        realtime_profile_data = helper.get_realtime_profile(user_id)
+        
+        # 통합 프로파일 생성 (기존 로직 유지)
+        merged_profile = self._load_customer_profile(session)
+
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
-            user_id=session.get("user_id", ""),
+            user_id=user_id,
             channel=channel_info,
             agent_session_key=agent_session_key,
             session_state=SessionState(session.get("session_state", "start")),
@@ -363,7 +391,9 @@ class SessionService:
             task_queue_status=task_queue_status,
             subagent_status=SubAgentStatus(session.get("subagent_status", "undefined")),
             last_event=last_event,
-            customer_profile=self._load_customer_profile(session),
+            customer_profile=merged_profile,
+            batch_profile=batch_profile_data,  # 배치 프로파일 (일별+월별)
+            realtime_profile=realtime_profile_data,  # 실시간 프로파일
             active_task=active_task,
             conversation_history=conversation_history,
             current_intent=current_intent,
@@ -638,8 +668,8 @@ class SessionService:
         
         global_session_key = global_session_key if isinstance(global_session_key, str) else global_session_key.decode()
         
-        # 4. 세션 TTL 연장하지 않음 (jwd.md 설계: Refresh Token 갱신은 연결 유지만, 실제 사용자 활동 없음)
-        # TTL 연장은 Invoke 시(사용자 메시지 전송 시)에만 수행됨
+        # 4. 세션 TTL 연장 (Refresh Token 갱신은 사용자 활동의 일부)
+        self.session_repo.refresh_ttl(global_session_key)
         
         # 5. 새 jti 생성 (Refresh Token Rotation)
         from uuid import uuid4
@@ -723,6 +753,10 @@ class SessionService:
     ) -> RealtimePersonalContextResponse:
         """실시간 프로파일 업데이트
 
+        변경사항:
+        - 배치 프로파일 조회 추가 (MariaDB)
+        - 배치 프로파일을 Redis에 저장 (user_id별)
+
         Args:
             global_session_key: 세션 키
             request: 실시간 프로파일 요청
@@ -741,12 +775,19 @@ class SessionService:
         if not user_id:
             raise HTTPException(status_code=400, detail="user_id not found in session")
 
-        # 2. Redis에 실시간 프로파일 저장
+        # 2. Redis에 실시간 프로파일 저장 (CUSNO로 저장)
         redis_client = get_redis_client()
         helper = RedisHelper(redis_client)
         helper.set_realtime_profile(user_id, request.profile_data)
 
-        # 3. 통합 프로파일 조회 및 세션 업데이트
+        # 3. 배치 프로파일 조회 (MariaDB) 및 Redis에 저장 (CUSNO로 저장)
+        if self.profile_repo:
+            batch_profile_data = self.profile_repo.get_batch_profile(user_id)
+            if batch_profile_data:
+                # Redis에 배치 프로파일 저장 (user_id별)
+                helper.set_batch_profile(user_id, batch_profile_data)
+
+        # 4. 통합 프로파일 조회 및 세션 업데이트
         merged_profile = self.get_merged_profile(user_id)
         if merged_profile:
             profile_data = merged_profile.model_dump()
@@ -763,4 +804,11 @@ class SessionService:
 
 def get_session_service() -> SessionService:
     """SessionService 인스턴스 반환 (DI)"""
-    return SessionService()
+    profile_repo = None
+    try:
+        from app.repositories.mariadb_batch_profile_repository import MariaDBBatchProfileRepository
+        profile_repo = MariaDBBatchProfileRepository()
+    except Exception as e:
+        logger.warning(f"Failed to initialize MariaDBBatchProfileRepository: {e}")
+        # MariaDB 연결 실패 시 profile_repo는 None으로 유지
+    return SessionService(profile_repo=profile_repo)

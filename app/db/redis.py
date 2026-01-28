@@ -164,3 +164,40 @@ class RedisHelper:
         """
         key = f"profile:realtime:{user_id}"
         self.client.set(key, json.dumps(profile_data, ensure_ascii=False))
+
+    # ============ 배치 프로파일 ============
+
+    def get_batch_profile(self, user_id: str) -> dict[str, Any] | None:
+        """배치 프로파일 조회 (일별+월별)
+        
+        Args:
+            user_id: 사용자 ID (10자리 숫자, 예: "0616001905")
+            
+        Returns:
+            배치 프로파일 데이터 (dict) 또는 None
+            {
+                "daily": {...},    # IFC_CUS_DD_SMRY_TOT 테이블 데이터
+                "monthly": {...}   # IFC_CUS_MMBY_SMRY_TOT 테이블 데이터
+            }
+        """
+        data = self.client.get(f"profile:batch:{user_id}")
+        if data:
+            try:
+                return json.loads(data)
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    def set_batch_profile(self, user_id: str, profile_data: dict[str, Any]) -> None:
+        """배치 프로파일 저장 (TTL 없음, 영구 저장)
+        
+        Args:
+            user_id: 사용자 ID (10자리 숫자, 예: "0616001905")
+            profile_data: 배치 프로파일 데이터 (dict)
+            {
+                "daily": {...},    # IFC_CUS_DD_SMRY_TOT 테이블 데이터
+                "monthly": {...}   # IFC_CUS_MMBY_SMRY_TOT 테이블 데이터
+            }
+        """
+        key = f"profile:batch:{user_id}"
+        self.client.set(key, json.dumps(profile_data, ensure_ascii=False))

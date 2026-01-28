@@ -41,6 +41,7 @@
       └─ Master Agent → Session Manager: 내부 서비스 API 호출 (global_session_key 사용)
          ├─ 세션 조회: `GET /api/v1/sessions/{global_session_key}`
          ├─ 세션 상태 업데이트: `PATCH /api/v1/sessions/{global_session_key}/state`
+         │  └─ session_state가 "talk"로 변경될 때 세션 TTL 연장 (Sliding Expiration on Invoke)
 
 6. 기타 API 호출
    ├─ 세션 검증: Client → AGW → Session Manager: `GET /api/v1/sessions/verify` (토큰으로 요청, global_session_key 응답)
@@ -114,7 +115,7 @@
 
 **Refresh Token:**
 - 용도: Access Token 갱신용
-- 유효기간: 1시간
+- 유효기간: 6분 (5분보다 약간만 길게 설정)
 - Payload: `{jti, sub, exp, iat, type: "refresh"}`
 
 **공통 필드:**
@@ -131,12 +132,11 @@
 Refresh Token으로 새 Access Token 발급 시 Session Manager가 수행하는 내부 로직:
 1. Refresh Token의 jti 추출
 2. Redis에서 `jti:{jti}` -> `global_session_key` 조회
-3. 해당 세션의 TTL 연장 (`session:{global_session_key}` TTL 갱신)
-4. 새 Access Token 발급 (동일 jti 사용)
-5. 새 Refresh Token 발급 (Refresh Token Rotation)
-   - 기존 Refresh Token이 만료되면 새 Refresh Token 발급
-   - 보안 강화를 위해 Refresh Token도 주기적으로 갱신
-6. Redis에 `jti:{jti}` 매핑 TTL 갱신 (5분)
+3. 해당 세션의 TTL 연장 (`session:{global_session_key}` TTL 갱신) - 사용자 활동의 일부로 간주
+4. 새 jti 생성 (Refresh Token Rotation)
+5. 새 Access Token 발급 (새 jti 사용)
+6. 새 Refresh Token 발급 (새 jti 사용, 6분 만료)
+7. 기존 jti 매핑 삭제 및 새 jti 매핑 저장 (TTL: 5분)
 
 ### 1.4 부연 설명
 
@@ -341,7 +341,7 @@ def get_jti_from_token(token: str, secret_key: str) -> str | None:
 JWT_SECRET_KEY=your-secret-key-here-change-in-production
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=5
-JWT_REFRESH_TOKEN_EXPIRE_HOURS=1
+JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6  # 5분보다 약간만 길게 설정
 ```
 
 **Refresh Token Rotation:**

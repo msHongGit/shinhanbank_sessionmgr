@@ -14,7 +14,7 @@
 - **세션 생성/조회/업데이트/종료**: Unified Sessions API (`/api/v1/sessions`)
 - **세션 상태 관리**: start / talk / end
 - **SubAgent 상태**: undefined / continue / end
-- **JWT 토큰 인증**: Access Token (5분), Refresh Token (1시간), Refresh Token Rotation
+- **JWT 토큰 인증**: Access Token (5분), Refresh Token (6분), Refresh Token Rotation, 토큰 갱신 시 세션 TTL 연장
 - **세션 생존 확인**: Ping API로 세션 생존 확인 (TTL 연장은 Refresh Token으로)
 
 ### 멀티턴 컨텍스트
@@ -145,8 +145,9 @@ Session Manager는 JWT 토큰 기반 인증을 사용합니다.
 
 - **토큰 발급**: 세션 생성 시 `access_token`과 `refresh_token` 자동 발급
 - **Access Token**: 만료 시간 5분, 세션 정보 조회 및 Ping에 사용
-- **Refresh Token**: 만료 시간 1시간, 토큰 갱신에 사용
+- **Refresh Token**: 만료 시간 6분 (5분보다 약간만 길게 설정), 토큰 갱신에 사용
 - **Refresh Token Rotation**: 토큰 갱신 시 새 토큰 발급, 기존 토큰 무효화
+- **세션 TTL 연장**: Refresh Token 갱신 시 세션 TTL도 함께 연장 (사용자 활동의 일부로 간주)
 - **사용 방법**: 
   - 헤더: `Authorization: Bearer {access_token}` 또는 `Authorization: Bearer {refresh_token}`
   - 쿠키: `access_token={access_token}` 또는 `refresh_token={refresh_token}`
@@ -176,7 +177,7 @@ SESSION_CACHE_TTL=300
 # JWT 설정 (필수)
 JWT_SECRET_KEY=your-secret-key-here  # 암호학적으로 안전한 랜덤 문자열 (예: openssl rand -hex 32)
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=5    # Access Token 만료 시간 (분)
-JWT_REFRESH_TOKEN_EXPIRE_HOURS=1    # Refresh Token 만료 시간 (시간)
+JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6   # Refresh Token 만료 시간 (분, 5분보다 약간만 길게)
 ```
 
 ## 📊 주요 API 사용 예시

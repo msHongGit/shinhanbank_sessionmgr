@@ -62,8 +62,9 @@
 - **Sprint 5**: JWT 토큰 기반 인증으로 전환
   - 세션 생성 시 `access_token`, `refresh_token`, `jti` 자동 발급
   - Access Token 만료 시간: 5분
-  - Refresh Token 만료 시간: 1시간
+  - Refresh Token 만료 시간: 6분 (5분보다 약간만 길게 설정)
   - Refresh Token Rotation 적용 (토큰 갱신 시 새 `jti` 생성)
+  - Refresh Token 갱신 시 세션 TTL 연장 (사용자 활동의 일부로 간주)
   - 토큰 검증 API (`/api/v1/sessions/verify`) 추가
   - 토큰 갱신 API (`/api/v1/sessions/refresh`) 추가
   - Ping API 경로 변경 (`/{global_session_key}/ping` → `/ping`, 토큰 기반)
@@ -97,7 +98,7 @@ Session Manager는 JWT 토큰 기반 인증을 사용합니다.
 #### 토큰 발급
 - 세션 생성 시 `access_token`과 `refresh_token`이 자동 발급됩니다.
 - `access_token`: Access Token (만료 시간: 5분)
-- `refresh_token`: Refresh Token (만료 시간: 1시간)
+- `refresh_token`: Refresh Token (만료 시간: 6분, 5분보다 약간만 길게 설정)
 - `jti`: JWT ID (UUID, Redis에 `jti:{jti}` → `global_session_key` 매핑 저장)
 
 #### 토큰 사용 방법
@@ -177,7 +178,7 @@ POST /api/v1/sessions
 |--------------------|--------|------------------------------------------------------------------|
 | global_session_key | string | 세션 전체를 대표하는 **글로벌 세션 ID** (이후 모든 호출에 사용) |
 | access_token       | string | Access Token (JWT, 만료 시간: 5분)                               |
-| refresh_token      | string | Refresh Token (JWT, 만료 시간: 1시간)                            |
+| refresh_token      | string | Refresh Token (JWT, 만료 시간: 6분)                             |
 | jti                | string | JWT ID (UUID, Redis에 `jti:{jti}` → `global_session_key` 매핑 저장) |
 
 **저장 흐름**
@@ -390,8 +391,14 @@ PATCH /api/v1/sessions/{global_session_key}/state
 **저장 흐름**
 
 1. Redis에 즉시 업데이트 (동기) → API 응답 반환
-2. Agent 세션 매핑 저장 (`agent_session_key` + `last_agent_id`가 있을 때):
+2. **Invoke 시 TTL 연장**: `session_state`가 `talk`로 변경될 때 세션 TTL 연장 (Sliding Expiration on Invoke)
+3. Agent 세션 매핑 저장 (`agent_session_key` + `last_agent_id`가 있을 때):
    - 세션 hash의 `agent_mappings` 필드에 JSON 문자열로 저장
+
+**TTL 연장 시점**
+- **Invoke 시** (`session_state = "talk"`): 세션 TTL 연장 (사용자 메시지 전송 시)
+- **Refresh Token 갱신 시**: 세션 TTL 연장 (사용자 활동의 일부로 간주)
+- **Ping 시**: TTL 연장 안 함 (단순 생존 확인만)
 
 ---
 
@@ -502,7 +509,56 @@ GET /api/v1/sessions/ping
 
 ---
 
-### 2.6 실시간 API 연동 결과 저장
+### 2.6 토큰 갱신
+
+**Endpoint**
+
+```http
+POST /api/v1/sessions/refresh
+```
+
+**언제 사용하나?**
+
+- Access Token이 만료되었을 때 Refresh Token으로 새 토큰 발급
+- 세션 TTL도 함께 연장됨 (사용자 활동의 일부로 간주)
+
+**요청**
+- 헤더: `Authorization: Bearer {refresh_token}` 또는 쿠키의 `refresh_token`
+- 또는 요청 body에 `refresh_token` 포함
+
+**Response Body**
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "global_session_key": "gsess_20260108_abcd1234",
+  "jti": "de8a2b69-48b5-4f72-bbae-09903954f5fe"
+}
+```
+
+| 필드               | 타입   | 설명                                                             |
+|--------------------|--------|------------------------------------------------------------------|
+| access_token       | string | 새 Access Token (JWT, 만료 시간: 5분)                            |
+| refresh_token      | string | 새 Refresh Token (JWT, 만료 시간: 6분, Refresh Token Rotation)   |
+| global_session_key | string | Global 세션 키 (AGW에만 전달)                                    |
+| jti                | string | 새 JWT ID (UUID, 기존 jti 매핑 삭제 후 새로 생성)                |
+
+**처리 로직**
+1. Refresh Token 검증 및 jti 추출
+2. Redis에서 `jti:{jti}` → `global_session_key` 조회
+3. **세션 TTL 연장** (`session:{global_session_key}` TTL 갱신, 사용자 활동의 일부로 간주)
+4. 새 jti 생성 (Refresh Token Rotation)
+5. 새 Access Token 및 Refresh Token 발급
+6. 기존 jti 매핑 삭제 및 새 jti 매핑 저장 (TTL: 5분)
+
+**주의사항**
+- Refresh Token Rotation: 기존 Refresh Token은 무효화되고 새 Refresh Token이 발급됩니다.
+- 세션 TTL 연장: 토큰 갱신 시 세션 TTL도 함께 연장됩니다 (5분).
+
+---
+
+### 2.7 실시간 API 연동 결과 저장
 
 **Endpoint**
 
@@ -585,7 +641,7 @@ POST /api/v1/sessions/{global_session_key}/api-results
 
 ---
 
-### 2.7 세션 전체 정보 조회
+### 2.8 세션 전체 정보 조회
 
 **Endpoint**
 
@@ -730,7 +786,7 @@ SESSION_CACHE_TTL=300
 # JWT 설정
 JWT_SECRET_KEY=your-secret-key-here  # 암호학적으로 안전한 랜덤 문자열 (예: openssl rand -hex 32)
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=5    # Access Token 만료 시간 (분)
-JWT_REFRESH_TOKEN_EXPIRE_HOURS=1     # Refresh Token 만료 시간 (시간)
+JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6   # Refresh Token 만료 시간 (분, 5분보다 약간만 길게)
 ```
 
 ---

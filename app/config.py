@@ -31,4 +31,13 @@ GLOBAL_SESSION_PREFIX: str = os.getenv("GLOBAL_SESSION_PREFIX", "gsess")
 # === JWT Configuration ===
 JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "5"))
-JWT_REFRESH_TOKEN_EXPIRE_HOURS: int = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_HOURS", "1"))
+JWT_REFRESH_TOKEN_EXPIRE_SECONDS: int = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_SECONDS", "330"))  # 5분 30초
+
+# === MariaDB Configuration ===
+MARIADB_HOST: str = os.getenv("MARIADB_HOST", "")
+MARIADB_PORT: int = int(os.getenv("MARIADB_PORT", "3306"))
+MARIADB_USER: str = os.getenv("MARIADB_USER", "")
+MARIADB_PASSWORD: str = os.getenv("MARIADB_PASSWORD", "")
+MARIADB_DATABASE: str = os.getenv("MARIADB_DATABASE", "")
+MARIADB_POOL_SIZE: int = int(os.getenv("MARIADB_POOL_SIZE", "10"))
+MARIADB_MAX_OVERFLOW: int = int(os.getenv("MARIADB_MAX_OVERFLOW", "20"))

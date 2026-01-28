@@ -161,7 +161,7 @@ async def verify_token_and_get_session(
     description="""
     Refresh Token으로 새 Access Token과 Refresh Token을 발급합니다.
     
-    세션 TTL도 함께 연장됩니다.
+    세션 TTL도 함께 연장됩니다 (사용자 활동의 일부로 간주).
     
     요청:
     - 헤더: Authorization: Bearer <refresh_token> 또는 쿠키의 refresh_token
@@ -539,6 +539,7 @@ async def get_session_full(
     - global_session_key: 세션 키
     
     필수 요청 필드:
+    - global_session_key: Global 세션 키 (경로 변수와 동일해야 함)
     - profile_data: 실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)
     
     참고:
@@ -560,4 +561,8 @@ async def update_realtime_personal_context(
     service: SessionService = Depends(get_session_service),
 ):
     """실시간 프로파일 업데이트 API"""
+    # 경로 변수와 요청 body의 global_session_key 일치 확인
+    if request.global_session_key != global_session_key:
+        raise HTTPException(status_code=400, detail="global_session_key mismatch")
+    
     return service.update_realtime_personal_context(global_session_key, request)

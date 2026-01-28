@@ -687,6 +687,7 @@ class TestRealtimePersonalContext:
             "loginTimesS6": "14:23:59",
         }
         update_req = {
+            "global_session_key": global_session_key,
             "profile_data": profile_data,
         }
         update_resp = client.post(
@@ -733,6 +734,7 @@ class TestRealtimePersonalContext:
             "cusSungNmS20": "홍길동",
         }
         update_req = {
+            "global_session_key": "nonexistent_session_key",
             "profile_data": profile_data,
         }
         update_resp = client.post(
@@ -741,3 +743,203 @@ class TestRealtimePersonalContext:
             headers=ma_headers,
         )
         assert update_resp.status_code == 404
+
+    def test_update_realtime_personal_context_key_mismatch(self, client, agw_headers, ma_headers):
+        """경로 변수와 요청 body의 global_session_key 불일치 테스트"""
+        # 1. 세션 생성
+        create_req = {
+            "userId": "0616001905",
+        }
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. 경로 변수와 다른 global_session_key를 body에 포함하여 요청
+        profile_data = {
+            "cusnoS10": "0616001905",
+            "cusSungNmS20": "홍길동",
+        }
+        update_req = {
+            "global_session_key": "different_session_key",
+            "profile_data": profile_data,
+        }
+        update_resp = client.post(
+            f"/api/v1/sessions/{global_session_key}/realtime-personal-context",
+            json=update_req,
+            headers=ma_headers,
+        )
+        assert update_resp.status_code == 400
+        assert "global_session_key mismatch" in update_resp.json()["detail"]
+
+
+class TestBatchProfileIntegration:
+    """배치 프로파일 통합 테스트"""
+
+    def test_realtime_profile_saves_batch_profile_to_redis(self, client, agw_headers, ma_headers):
+        """실시간 프로파일 저장 시 배치 프로파일 조회 및 Redis 저장 테스트"""
+        # 1. 세션 생성 (CUSNO 없음, 배치 프로파일 조회 안 함)
+        create_req = {
+            "userId": "0616001905",
+        }
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. 실시간 프로파일 업데이트 (이때 배치 프로파일 조회 및 저장)
+        profile_data = {
+            "cusnoS10": "0616001905",
+            "cusSungNmS20": "홍길동",
+            "hpNoS12": "01031286270",
+        }
+        update_req = {
+            "global_session_key": global_session_key,
+            "profile_data": profile_data,
+        }
+        update_resp = client.post(
+            f"/api/v1/sessions/{global_session_key}/realtime-personal-context",
+            json=update_req,
+            headers=ma_headers,
+        )
+        assert update_resp.status_code == 200
+        assert update_resp.json()["status"] == "success"
+
+        # 3. Redis에서 배치 프로파일 조회 확인
+        from app.db.redis import RedisHelper, get_redis_client
+        redis_client = get_redis_client()
+        helper = RedisHelper(redis_client)
+        
+        batch_profile = helper.get_batch_profile("0616001905")
+        assert batch_profile is not None
+        assert "daily" in batch_profile
+        assert "monthly" in batch_profile
+        assert batch_profile["daily"]["CUSNO"] == "0616001905"
+        assert batch_profile["monthly"]["CUSNO"] == "0616001905"
+
+        # 4. Redis에서 실시간 프로파일 조회 확인
+        realtime_profile = helper.get_realtime_profile("0616001905")
+        assert realtime_profile is not None
+        assert realtime_profile["cusnoS10"] == "0616001905"
+        assert realtime_profile["cusSungNmS20"] == "홍길동"
+
+    def test_session_resolve_returns_separate_batch_and_realtime_profiles(self, client, agw_headers, ma_headers):
+        """세션 조회 시 배치/실시간 프로파일 분리 전달 테스트"""
+        # 1. 세션 생성
+        create_req = {
+            "userId": "0616001905",
+        }
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. 실시간 프로파일 업데이트 (배치 프로파일도 함께 저장됨)
+        profile_data = {
+            "cusnoS10": "0616001905",
+            "cusSungNmS20": "홍길동",
+            "hpNoS12": "01031286270",
+        }
+        update_req = {
+            "global_session_key": global_session_key,
+            "profile_data": profile_data,
+        }
+        update_resp = client.post(
+            f"/api/v1/sessions/{global_session_key}/realtime-personal-context",
+            json=update_req,
+            headers=ma_headers,
+        )
+        assert update_resp.status_code == 200
+
+        # 3. 세션 조회
+        get_resp = client.get(f"/api/v1/sessions/{global_session_key}", headers=ma_headers)
+        assert get_resp.status_code == 200
+        session_data = get_resp.json()
+
+        # 4. 배치 프로파일과 실시간 프로파일이 분리되어 전달되는지 확인
+        assert "batch_profile" in session_data
+        assert "realtime_profile" in session_data
+        
+        batch_profile = session_data["batch_profile"]
+        assert batch_profile is not None
+        assert "daily" in batch_profile
+        assert "monthly" in batch_profile
+        assert batch_profile["daily"]["CUSNO"] == "0616001905"
+        assert batch_profile["monthly"]["CUSNO"] == "0616001905"
+
+        realtime_profile = session_data["realtime_profile"]
+        assert realtime_profile is not None
+        assert realtime_profile["cusnoS10"] == "0616001905"
+        assert realtime_profile["cusSungNmS20"] == "홍길동"
+
+        # 5. 통합 프로파일도 확인
+        assert "customer_profile" in session_data
+        customer_profile = session_data["customer_profile"]
+        assert customer_profile is not None
+
+    def test_session_create_does_not_fetch_batch_profile(self, client, agw_headers):
+        """세션 생성 시 배치 프로파일 조회 안 하는지 확인"""
+        # 0. Redis에서 기존 배치 프로파일 삭제 (다른 테스트 영향 제거)
+        from app.db.redis import RedisHelper, get_redis_client
+        redis_client = get_redis_client()
+        helper = RedisHelper(redis_client)
+        redis_client.delete("profile:batch:0616001905")
+        
+        # 1. 세션 생성 (CUSNO 없음)
+        create_req = {
+            "userId": "0616001905",
+        }
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. Redis에서 배치 프로파일이 없는지 확인
+        batch_profile = helper.get_batch_profile("0616001905")
+        # 세션 생성 시에는 배치 프로파일이 조회되지 않으므로 None이어야 함
+        assert batch_profile is None
+
+    def test_session_resolve_fetches_batch_profile_from_mariadb_if_not_in_redis(self, client, agw_headers, ma_headers):
+        """세션 조회 시 Redis에 배치 프로파일이 없으면 MariaDB에서 조회하는지 테스트"""
+        # 1. 세션 생성
+        create_req = {
+            "userId": "0616001905",
+        }
+        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        assert create_resp.status_code == 201
+        global_session_key = create_resp.json()["global_session_key"]
+
+        # 2. 실시간 프로파일만 업데이트 (배치 프로파일은 저장하지 않음)
+        profile_data = {
+            "cusnoS10": "0616001905",
+            "cusSungNmS20": "홍길동",
+        }
+        update_req = {
+            "global_session_key": global_session_key,
+            "profile_data": profile_data,
+        }
+        update_resp = client.post(
+            f"/api/v1/sessions/{global_session_key}/realtime-personal-context",
+            json=update_req,
+            headers=ma_headers,
+        )
+        assert update_resp.status_code == 200
+
+        # 3. Redis에서 배치 프로파일 삭제 (시뮬레이션)
+        from app.db.redis import RedisHelper, get_redis_client
+        redis_client = get_redis_client()
+        helper = RedisHelper(redis_client)
+        redis_client.delete("profile:batch:0616001905")
+
+        # 4. 세션 조회 (배치 프로파일이 Redis에 없으면 MariaDB에서 조회)
+        get_resp = client.get(f"/api/v1/sessions/{global_session_key}", headers=ma_headers)
+        assert get_resp.status_code == 200
+        session_data = get_resp.json()
+
+        # 5. 배치 프로파일이 조회되었는지 확인 (MariaDB에서 조회 후 Redis에 저장됨)
+        assert "batch_profile" in session_data
+        batch_profile = session_data["batch_profile"]
+        assert batch_profile is not None
+        assert "daily" in batch_profile
+        assert "monthly" in batch_profile
+
+        # 6. Redis에 다시 저장되었는지 확인
+        batch_profile_from_redis = helper.get_batch_profile("0616001905")
+        assert batch_profile_from_redis is not None
+        assert batch_profile_from_redis["daily"]["CUSNO"] == "0616001905"

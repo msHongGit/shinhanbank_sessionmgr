@@ -7,7 +7,7 @@ from jwt.exceptions import DecodeError, ExpiredSignatureError, InvalidTokenError
 from app.config import (
     JWT_SECRET_KEY,
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
-    JWT_REFRESH_TOKEN_EXPIRE_HOURS,
+    JWT_REFRESH_TOKEN_EXPIRE_SECONDS,
 )
 
 
@@ -44,7 +44,7 @@ def create_refresh_token(jti: str, user_id: str, secret_key: str) -> str:
     Returns:
         Refresh Token (JWT 문자열)
     """
-    expire = datetime.now(UTC) + timedelta(hours=JWT_REFRESH_TOKEN_EXPIRE_HOURS)
+    expire = datetime.now(UTC) + timedelta(seconds=JWT_REFRESH_TOKEN_EXPIRE_SECONDS)
     payload = {
         "jti": jti,
         "sub": user_id,
