@@ -52,6 +52,7 @@ def client():
         # MariaDB 연결 정보가 없으면 None으로 두고 테스트 진행
         # (일부 테스트는 MariaDB 없이도 실행 가능)
         import logging
+
         logging.getLogger(__name__).debug(f"MariaDB connection not available: {e}")
         profile_repo = None
 

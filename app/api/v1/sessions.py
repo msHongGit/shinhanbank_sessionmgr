@@ -599,12 +599,12 @@ async def get_session_full(
     처리 로직:
     - cusnoS10이 있는 경우:
       1. 세션에 cusno 저장
-      2. Redis에 profile:realtime:{cusnoS10} 저장 (TTL 없음, 영구 저장)
+      2. Redis에 profile:realtime:{cusnoS10} 저장 (세션과 동일한 TTL)
       3. MariaDB에서 배치 프로파일 조회 (CUSNO = cusnoS10)
-      4. Redis에 profile:batch:{cusnoS10} 저장 (TTL 없음, 영구 저장)
+      4. Redis에 profile:batch:{cusnoS10} 저장 (세션과 동일한 TTL)
     - cusnoS10이 없는 경우:
       1. 세션에 cusno 저장하지 않음
-      2. Redis에 profile:realtime:{global_session_key} 저장 (TTL 없음, 영구 저장)
+      2. Redis에 profile:realtime:{global_session_key} 저장 (세션과 동일한 TTL)
       3. 배치 프로파일 조회하지 않음 (CUSNO 없음)
     
     호출 시점:

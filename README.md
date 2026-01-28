@@ -1,19 +1,18 @@
 # Session Manager v5.0 - Sprint 5
 
-은행 AI Agent 시스템의 세션/컨텍스트 관리 서비스
+은행 AI Agent 시스템의 세션 관리 서비스
 
 > **Sprint 1**: 설계 및 아키텍처 정의  
 > **Sprint 2**: Mock Repository 기반 API 검증  
 > **Sprint 3**: Unified Sessions + SOL 연동 결과 메타데이터(Contexts/Turns), Redis 기반 세션/컨텍스트 관리  
 > **Sprint 4**: MariaDB 영구 저장소 통합, 필드명 통일, Context DB 구축  
-> **Sprint 5**: Redis 전용 전환 (MariaDB 선택적 통합, Mock 제거, Profile만 Mock 유지)
+> **Sprint 5**: Redis 전용 전환, JWT 토큰 인증, 비동기 적용, 프로파일 분리 (실시간+배치), Mock 제거
 
 ## 🎯 주요 기능
 
 ### 세션 관리
 - **세션 생성/조회/업데이트/종료**: Unified Sessions API (`/api/v1/sessions`)
 - **세션 상태 관리**: start / talk / end
-- **SubAgent 상태**: undefined / continue / end
 - **JWT 토큰 인증**: Access Token (300초 = 5분), Refresh Token (330초 = 5분 30초), Refresh Token Rotation, 토큰 갱신 시 세션 TTL 연장
 - **세션 생존 확인**: Ping API로 세션 생존 확인 (TTL 연장은 Refresh Token으로)
 
@@ -24,11 +23,11 @@
 - **round-trip 보장**: MA가 보낸 구조를 그대로 저장하고 조회 시 동일하게 반환
 
 ### 개인화 프로파일
-- **실시간 프로파일**: 실시간 프로파일 업데이트 API로 Redis에 영구 저장
+- **실시간 프로파일**: 실시간 프로파일 업데이트 API로 Redis에 저장
 - **배치 프로파일**: MariaDB에서 조회하여 Redis에 저장 (MariaDB 연결 정보가 있을 때만)
 - **조회 시 반환**: GET /sessions/{key} 응답에 batch_profile과 realtime_profile을 분리하여 반환
 - **세션 매핑**: 실시간 프로파일 저장 시 세션에 cusno 필드 저장 (cusnoS10 추출)
-- **프로파일 조회**: 세션 조회 시 세션의 cusno 필드로 프로파일 조회 (user_id 기반 조회 제거)
+- **프로파일 조회**: 세션 조회 시 세션의 cusno 필드로 프로파일 조회
 
 ### SOL API 연동 로그
 - **턴 메타데이터 저장**: `POST /api/v1/sessions/{global_session_key}/api-results` 로 SOL API 호출 결과 저장
@@ -45,11 +44,12 @@
 ├─────────────────────────────────────────────────────────────┤
 │  Service Layer                                               │
 │    ├─ SessionService  : 세션/Agent 세션 매핑 비즈니스 로직   │
-│    └─ ProfileService  : (향후) 고객 프로파일 조회/연결        │
+│    ├─ AuthService     : JWT 토큰 생성/검증/갱신              │
+│    └─ ProfileService  : 실시간/배치 프로파일 조회 및 저장     │
 ├─────────────────────────────────────────────────────────────┤
 │  Repository Layer                                            │
-│    ├─ RedisSessionRepository   : Redis 기반 세션/매핑/턴 저장소 │
-│    └─ MockProfileRepository    : 프로파일 Mock 구현체 (개발/테스트용) │
+│    ├─ RedisSessionRepository         : Redis 기반 세션/매핑/턴 저장소 │
+│    └─ MariaDBBatchProfileRepository   : MariaDB 배치 프로파일 조회 (선택적) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -60,14 +60,13 @@ app/
    api/
       v1/
          sessions.py      # Unified Sessions API (생성/조회/업데이트/종료/Ping/SOL API 결과 저장/전체 조회)
-         router.py        # v1 라우터 집합
    services/            # 비즈니스 로직
       session_service.py   # 세션 관리 핵심 로직 (멀티턴 컨텍스트 포함)
-      profile_service.py   # 프로파일 조회 (향후 확장용)
+      auth_service.py      # JWT 토큰 생성/검증/갱신
+      profile_service.py   # 실시간/배치 프로파일 조회 및 저장
    repositories/        # Repository 구현체 (Duck Typing 방식)
-      redis_session_repository.py     # Redis 기반 세션/턴 저장소
-      mock/                            # Mock Repository
-         mock_profile_repository.py   # 프로파일 Mock 구현체 (개발/테스트용)
+      redis_session_repository.py         # Redis 기반 세션/턴 저장소
+      mariadb_batch_profile_repository.py # MariaDB 배치 프로파일 조회 (선택적)
    schemas/             # Pydantic 스키마
       common.py         # 세션/턴 요청/응답 스키마 (통합)
    core/                # 예외, 인증, 정책, 유틸리티
@@ -79,10 +78,19 @@ app/
    config.py            # 환경 설정
    main.py              # FastAPI 엔트리포인트
 tests/
-   test_sessions_api.py    # Sessions API 통합 테스트 (JWT 인증 포함)
+   test_session_create.py      # 세션 생성 테스트
+   test_session_resolve.py      # 세션 조회 테스트
+   test_session_state.py        # 세션 상태 업데이트 테스트
+   test_session_jwt.py          # JWT 토큰 인증 테스트
+   test_session_batch_profile.py # 배치 프로파일 통합 테스트
+   test_session_realtime_profile.py # 실시간 프로파일 테스트
+   test_session_sol_api.py      # SOL API 결과 저장 테스트
+   test_multiturn.py             # 멀티턴 컨텍스트 테스트
 docs/
+   Session_Manager_API_Sprint5.md  # Sprint 5 API 명세 (최신)
+   Session_Manager_API_Sprint4.md  # Sprint 4 API 명세
    Session_Manager_API_Sprint3.md  # Sprint 3 API 명세
-   mulititurn.md                    # 멀티턴 컨텍스트 명세
+   redis_queries_and_curl_tests.md # Redis 조회 및 API 테스트 가이드
 ```
 
 ## 🚀 시작하기
@@ -122,7 +130,7 @@ uv run python -m app.main
 uv run pytest -v
 
 # 특정 테스트만 실행
-uv run pytest tests/test_sessions_api.py -v
+uv run pytest tests/test_session_create.py -v
 
 # 테스트 커버리지
 uv run pytest --cov=app tests/
@@ -147,7 +155,7 @@ Session Manager는 JWT 토큰 기반 인증을 사용합니다.
 
 - **토큰 발급**: 세션 생성 시 `access_token`과 `refresh_token` 자동 발급
 - **Access Token**: 만료 시간 5분, 세션 정보 조회 및 Ping에 사용
-- **Refresh Token**: 만료 시간 6분 (5분보다 약간만 길게 설정), 토큰 갱신에 사용
+- **Refresh Token**: 만료 시간 5분 30초 (330초, 5분보다 약간만 길게 설정), 토큰 갱신에 사용
 - **Refresh Token Rotation**: 토큰 갱신 시 새 토큰 발급, 기존 토큰 무효화
 - **세션 TTL 연장**: Refresh Token 갱신 시 세션 TTL도 함께 연장 (사용자 활동의 일부로 간주)
 - **사용 방법**: 
@@ -161,11 +169,12 @@ Session Manager는 JWT 토큰 기반 인증을 사용합니다.
 - 기본 TTL 설정 (환경변수로 조정 가능):
   - `SESSION_CACHE_TTL=300` (세션 스냅샷, 기본값 300초)
 - Redis 키 구조:
-  - `session:{global_session_key}` - 세션 해시 (Agent 매핑 포함)
-  - `turns:{global_session_key}` - 턴 목록 (리스트)
-  - `jti:{jti}` - JWT ID → global_session_key 매핑
-  - `profile:realtime:{cusnoS10}` - 실시간 프로파일 (TTL 없음, 영구 저장)
-  - `profile:batch:{cusnoS10}` - 배치 프로파일 (TTL 없음, 영구 저장)
+  - `session:{global_session_key}` - 세션 해시 (Agent 매핑, cusno 포함, TTL: 300초)
+  - `turns:{global_session_key}` - 턴 목록 (리스트, TTL: 세션과 동일)
+  - `jti:{jti}` - JWT ID → global_session_key 매핑 (TTL: 300초)
+  - `profile:realtime:{cusno}` - 실시간 프로파일 (cusnoS10 추출, TTL: 세션과 동일)
+  - `profile:realtime:{global_session_key}` - 실시간 프로파일 (cusnoS10 없을 경우, TTL: 세션과 동일)
+  - `profile:batch:{cusno}` - 배치 프로파일 (CUSNO 기반, TTL: 세션과 동일)
 
 **MariaDB** (배치 프로파일 조회용, 선택적)
 - 배치 프로파일 조회용 (IFC_CUS_DD_SMRY_TOT, IFC_CUS_MMBY_SMRY_TOT)
@@ -211,6 +220,8 @@ curl -X POST "http://localhost:5000/api/v1/sessions" \
       "eventChannel": "mobile"
     }
   }'
+
+# 참고: userId는 선택적 필드입니다 (없으면 빈 문자열로 저장)
 
 # 응답: {
 #   "global_session_key": "gsess_20260113...",
@@ -283,7 +294,6 @@ curl -X GET "http://localhost:5000/api/v1/sessions/verify" \
 
 # 응답: {
 #   "global_session_key": "gsess_20260113...",
-#   "user_id": "0616001905",
 #   "session_state": "talk",
 #   "is_alive": true,
 #   "expires_at": "2026-01-14T10:45:00Z"
@@ -335,14 +345,15 @@ curl -X DELETE "http://localhost:5000/api/v1/sessions" \
 ### Redis 전용 전환 (MariaDB 선택적)
 - Redis 필수: 세션/턴 메타데이터 및 프로파일 저장
 - MariaDB 선택적: 배치 프로파일 조회용 (MARIADB_HOST 설정 시에만 사용)
-- Mock Repository 제거: Session/Context Mock 제거 (Profile Mock만 유지)
-- BackgroundTasks 제거: 비동기 저장 로직 제거
+- Mock Repository 제거: 모든 Mock Repository 제거 (실제 Redis/MariaDB 사용)
+- 비동기 전환: 모든 I/O 작업을 비동기로 처리 (FastAPI async/await)
 
 ### 저장소 단순화
 - Redis 필수: 세션/컨텍스트/턴 메타데이터 및 프로파일 모두 Redis에 저장
 - MariaDB 선택적: 배치 프로파일 조회용 (연결 정보가 없어도 서비스 정상 동작)
 - TTL 기반 관리: 세션 생존 시간 자동 관리 (기본 300초)
-- Profile Mock 제거: 실제 MariaDB 사용으로 전환
+- 프로파일 분리: batch_profile과 realtime_profile 분리 저장 및 반환
+- cusno 기반 매핑: 실시간 프로파일의 cusnoS10을 추출하여 세션에 cusno 저장, 프로파일 조회 시 사용
 
 ### JWT 토큰 기반 인증 추가
 - API Key 인증 제거: `app/core/auth.py` 삭제, 모든 API Key 관련 설정 제거
@@ -352,22 +363,16 @@ curl -X DELETE "http://localhost:5000/api/v1/sessions" \
 - Ping API 변경: `/{global_session_key}/ping` → `/ping` (토큰 기반, TTL 연장 없음)
 - 세션 종료 API 변경: `/{global_session_key}` → `/` (토큰 기반 엔드포인트 추가)
 
-### 코드 정리
+### 코드 정리 및 서비스 분리
 - MariaDB 선택적 통합: `app/db/mariadb.py` (비동기 연결), `app/repositories/mariadb_batch_profile_repository.py` (배치 프로파일 조회)
-- Mock 관련 코드 제거: `MockSessionRepository`, `MockContextRepository` 제거
+- Mock 관련 코드 제거: 모든 Mock Repository 제거 (`MockSessionRepository`, `MockContextRepository`, `MockProfileRepository`)
 - API 통합: `app/api/v1/contexts.py` 삭제, `app/api/v1/sessions.py`로 통합
 - Repository 통합: `app/repositories/redis_context_repository.py` 삭제, `app/repositories/redis_session_repository.py`로 통합
 - 스키마 통합: `app/schemas/contexts.py` 삭제, `app/schemas/common.py`로 통합
 - JWT 인증 추가: `app/core/jwt.py`, `app/core/jwt_auth.py` 추가
+- 서비스 분리: `SessionService`, `AuthService`, `ProfileService`로 책임 분리
+- 비동기 전환: 모든 Repository와 Service를 async/await로 전환
 - 불필요한 import 제거: 사용하지 않는 import 정리
-
-## 🎯 향후 확장 (Sprint 6+)
-
-- 개인화 프로파일 개선
-  - 배치 프로파일: MariaDB에서 조회 완료 (IFC_CUS_DD_SMRY_TOT, IFC_CUS_MMBY_SMRY_TOT)
-  - 실시간 프로파일: Redis에 저장 완료
-  - 프로파일 분리 반환: batch_profile과 realtime_profile 분리 완료
-- 여러 Agent 매핑 한 번에 처리 (`state_patch.agent_mappings` 배열 지원)
 
 ## 🛠️ 기술 스택
 
@@ -375,7 +380,7 @@ curl -X DELETE "http://localhost:5000/api/v1/sessions" \
 - **Package Manager**: uv
 - **ORM**: SQLAlchemy 2.0.25 (향후 RDB 연동용)
 - **Cache**: Redis 5.0.1
-- **JWT**: PyJWT[cryptography]>=2.8.0
+- **JWT**: PyJWT>=2.8.0 (cryptography는 MariaDB 연결용으로 별도 설치)
 - **Testing**: pytest 9.0.2
 - **Linting**: Ruff 0.14.10
 - **Python**: 3.11+
@@ -394,7 +399,6 @@ curl -X DELETE "http://localhost:5000/api/v1/sessions" \
 - `docs/Session_Manager_API_Sprint5.md` – Sprint 5 API 명세서 (최신)
 - `docs/Session_Manager_API_Sprint4.md` – Sprint 4 API 명세서
 - `docs/Session_Manager_API_Sprint3.md` – Sprint 3 API 명세서
-- `docs/redis_data.md` – Redis 데이터 구조 정의서
-- `docs/redis.md` – Redis 운영 가이드
+- `docs/redis_queries_and_curl_tests.md` – Redis CLI 조회 및 간단한 API 테스트 가이드
 
 

@@ -121,8 +121,13 @@ class RedisHelper:
         return [json.loads(t) for t in turns_json]
 
     async def add_context_turn(self, global_session_key: str, turn: dict[str, Any]) -> None:
-        """세션의 대화 턴 추가"""
-        await self.client.rpush(f"turns:{global_session_key}", json.dumps(turn))
+        """세션의 대화 턴 추가 (세션과 동일한 TTL 설정)"""
+        from app.config import SESSION_CACHE_TTL
+
+        key = f"turns:{global_session_key}"
+        await self.client.rpush(key, json.dumps(turn))
+        # 세션과 동일한 TTL 설정
+        await self.client.expire(key, SESSION_CACHE_TTL)
 
     async def delete_context_turns(self, global_session_key: str) -> int:
         """세션의 대화 턴 삭제"""
@@ -175,15 +180,20 @@ class RedisHelper:
                 return None
         return None
 
-    async def set_realtime_profile(self, user_id: str, profile_data: dict[str, Any]) -> None:
-        """실시간 프로파일 저장 (TTL 없음, 영구 저장)
+    async def set_realtime_profile(self, user_id: str, profile_data: dict[str, Any], ttl: int | None = None) -> None:
+        """실시간 프로파일 저장 (세션과 동일한 TTL 설정)
 
         Args:
-            user_id: 사용자 ID (10자리 숫자, 예: "0616001905")
+            user_id: 사용자 ID (cusno 또는 global_session_key)
             profile_data: 실시간 프로파일 데이터 (dict, redis_data.md 구조 그대로 저장)
+            ttl: TTL (초 단위, None이면 SESSION_CACHE_TTL 사용)
         """
+        from app.config import SESSION_CACHE_TTL
+
         key = f"profile:realtime:{user_id}"
         await self.client.set(key, json.dumps(profile_data, ensure_ascii=False))
+        # 세션과 동일한 TTL 설정
+        await self.client.expire(key, ttl or SESSION_CACHE_TTL)
 
     # ============ 배치 프로파일 ============
 
@@ -208,16 +218,21 @@ class RedisHelper:
                 return None
         return None
 
-    async def set_batch_profile(self, user_id: str, profile_data: dict[str, Any]) -> None:
-        """배치 프로파일 저장 (TTL 없음, 영구 저장)
+    async def set_batch_profile(self, user_id: str, profile_data: dict[str, Any], ttl: int | None = None) -> None:
+        """배치 프로파일 저장 (세션과 동일한 TTL 설정)
 
         Args:
-            user_id: 사용자 ID (10자리 숫자, 예: "0616001905")
+            user_id: 사용자 ID (cusno)
             profile_data: 배치 프로파일 데이터 (dict)
             {
                 "daily": {...},    # IFC_CUS_DD_SMRY_TOT 테이블 데이터
                 "monthly": {...}   # IFC_CUS_MMBY_SMRY_TOT 테이블 데이터
             }
+            ttl: TTL (초 단위, None이면 SESSION_CACHE_TTL 사용)
         """
+        from app.config import SESSION_CACHE_TTL
+
         key = f"profile:batch:{user_id}"
         await self.client.set(key, json.dumps(profile_data, ensure_ascii=False))
+        # 세션과 동일한 TTL 설정
+        await self.client.expire(key, ttl or SESSION_CACHE_TTL)

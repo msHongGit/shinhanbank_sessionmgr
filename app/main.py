@@ -93,7 +93,8 @@ app = FastAPI(
 
         - **Redis**: 세션/턴 메타데이터 및 프로파일 저장
           - 세션: 기본 TTL 300초 (5분)
-          - 프로파일: TTL 없음 (영구 저장)
+          - 턴(Turns): 세션과 동일한 TTL
+          - 프로파일: 세션과 동일한 TTL (세션 만료 시 함께 삭제)
           - 키 구조: `session:{global_session_key}`, `profile:realtime:{cusno|global_session_key}`, `profile:batch:{cusno}`
         - **MariaDB** (선택적): 배치 프로파일 조회용 (IFC_CUS_DD_SMRY_TOT, IFC_CUS_MMBY_SMRY_TOT)
           - MariaDB 연결 정보가 없어도 서비스 정상 동작 (배치 프로파일만 None 반환)

@@ -92,6 +92,7 @@ class RedisSessionRepository:
         """세션 TTL 연장 및 만료 시각 갱신.
 
         세션이 존재하면 SESSION_CACHE_TTL 기준으로 expires_at을 다시 설정하고 Redis TTL도 연장한다.
+        턴 데이터와 프로파일 데이터의 TTL도 함께 연장한다.
         존재하지 않으면 None을 반환한다.
         """
 
@@ -103,6 +104,29 @@ class RedisSessionRepository:
         expires_at = now + timedelta(seconds=SESSION_CACHE_TTL)
         session["expires_at"] = expires_at.isoformat()
         await self.helper.set_session(global_session_key, session, ttl=SESSION_CACHE_TTL)
+
+        # 턴 데이터 TTL도 함께 연장
+        redis_client = get_redis_client()
+        turns_key = f"turns:{global_session_key}"
+        if await redis_client.exists(turns_key):
+            await redis_client.expire(turns_key, SESSION_CACHE_TTL)
+
+        # 프로파일 데이터 TTL도 함께 연장
+        cusno = session.get("cusno")
+        if cusno:
+            # cusno 기반 프로파일 TTL 연장
+            realtime_key = f"profile:realtime:{cusno}"
+            batch_key = f"profile:batch:{cusno}"
+            if await redis_client.exists(realtime_key):
+                await redis_client.expire(realtime_key, SESSION_CACHE_TTL)
+            if await redis_client.exists(batch_key):
+                await redis_client.expire(batch_key, SESSION_CACHE_TTL)
+        else:
+            # global_session_key 기반 프로파일 TTL 연장 (cusnoS10 없을 경우)
+            realtime_key = f"profile:realtime:{global_session_key}"
+            if await redis_client.exists(realtime_key):
+                await redis_client.expire(realtime_key, SESSION_CACHE_TTL)
+
         return session
 
     # ============ Global↔Local Session Mapping ============
