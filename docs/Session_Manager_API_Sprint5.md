@@ -1,7 +1,7 @@
 # Session Manager API 명세 (Sprint 5 기준)
 
-> **Sprint 5 구현 기준** – Redis 전용 전환, MariaDB 제거, API 통합, 구조 단순화  
-> **Session Manager 역할**: 세션/컨텍스트/프로파일 메타데이터 저장 및 조회 (Redis만 사용)
+> **Sprint 5 구현 기준** – Redis 전용 전환, MariaDB 선택적 통합, API 통합, 구조 단순화  
+> **Session Manager 역할**: 세션/컨텍스트/프로파일 메타데이터 저장 및 조회 (Redis 필수, MariaDB 선택적)
 
 ---
 
@@ -11,10 +11,11 @@
 
 ### 주요 변경사항
 
-#### 1. Redis 전용 전환
+#### 1. Redis 전용 전환 (MariaDB 선택적)
 - **Sprint 4**: Redis (동기) + MariaDB (비동기) 하이브리드 저장소
-- **Sprint 5**: Redis만 사용 (단일 저장소)
-  - MariaDB 완전 제거
+- **Sprint 5**: Redis 필수, MariaDB 선택적
+  - Redis: 세션/턴 메타데이터 및 프로파일 저장 (필수)
+  - MariaDB: 배치 프로파일 조회용 (선택적, MARIADB_HOST 설정 시에만 사용)
   - BackgroundTasks 제거 (비동기 저장 로직 제거)
   - 모든 데이터를 Redis에 동기 저장
 
@@ -61,8 +62,8 @@
 - **Sprint 4**: API Key 기반 인증 (선택적)
 - **Sprint 5**: JWT 토큰 기반 인증으로 전환
   - 세션 생성 시 `access_token`, `refresh_token`, `jti` 자동 발급
-  - Access Token 만료 시간: 5분
-  - Refresh Token 만료 시간: 6분 (5분보다 약간만 길게 설정)
+  - Access Token 만료 시간: 300초 (5분)
+  - Refresh Token 만료 시간: 330초 (5분 30초)
   - Refresh Token Rotation 적용 (토큰 갱신 시 새 `jti` 생성)
   - Refresh Token 갱신 시 세션 TTL 연장 (사용자 활동의 일부로 간주)
   - 토큰 검증 API (`/api/v1/sessions/verify`) 추가
@@ -97,8 +98,8 @@ Session Manager는 JWT 토큰 기반 인증을 사용합니다.
 
 #### 토큰 발급
 - 세션 생성 시 `access_token`과 `refresh_token`이 자동 발급됩니다.
-- `access_token`: Access Token (만료 시간: 5분)
-- `refresh_token`: Refresh Token (만료 시간: 6분, 5분보다 약간만 길게 설정)
+- `access_token`: Access Token (만료 시간: 300초 = 5분)
+- `refresh_token`: Refresh Token (만료 시간: 330초 = 5분 30초)
 - `jti`: JWT ID (UUID, Redis에 `jti:{jti}` → `global_session_key` 매핑 저장)
 
 #### 토큰 사용 방법
@@ -131,11 +132,11 @@ POST /api/v1/sessions
 **언제 사용하나?**
 
 - AGW/Client가 **처음 상담 시작** 시
-- 이미 같은 세션에 살아 있다면 **기존 세션 재사용** (`is_new=false`)
 - 이때 Session Manager가:
   - `global_session_key` 자동 발급 (응답에 포함)
-  - 프로파일 저장소에서 개인화 프로파일 조회 후 세션에 저장 (조회 시 포함)
+  - JWT 토큰 자동 발급 (`access_token`, `refresh_token`, `jti`)
   - **Redis에 즉시 저장** (동기)
+  - 참고: 프로파일은 세션 생성 시점에는 조회하지 않음 (CUSNO 없음)
 
 **Request Body – `SessionCreateRequest`**
 
@@ -228,13 +229,24 @@ GET /api/v1/sessions/gsess_20260108_abcd1234?agent_type=task&agent_id=transfer_a
     "response_type": "text",
     "updated_at": "2026-01-14T10:30:00Z"
   },
-  "customer_profile": {
-    "user_id": "user_001",
-    "attributes": [],
-    "segment": "VIP",
-    "preferences": {
-      "marketing_opt_in": true
+  "customer_profile": null,
+  "batch_profile": {
+    "daily": {
+      "CUSNO": "0616001905",
+      "STD_DT": "20260121",
+      ...
+    },
+    "monthly": {
+      "CUSNO": "0616001905",
+      "STD_YM": "202601",
+      ...
     }
+  },
+  "realtime_profile": {
+    "cusnoS10": "0616001905",
+    "cusSungNmS20": "홍길동",
+    "hpNoS12": "01031286270",
+    ...
   },
   "active_task": {
     "task_id": "task-001",
@@ -293,6 +305,10 @@ GET /api/v1/sessions/gsess_20260108_abcd1234?agent_type=task&agent_id=transfer_a
 1. Redis에서 세션 조회
 2. `reference_information` 파싱하여 상위 필드로 추출
 3. Agent 매핑 조회 (세션 hash의 `agent_mappings` 필드에서)
+4. 프로파일 조회:
+   - 세션의 `cusno` 필드 확인 (실시간 프로파일 저장 시 저장된 값)
+   - `cusno`가 있으면 Redis에서 `profile:realtime:{cusno}`, `profile:batch:{cusno}` 조회
+   - `cusno`가 없으면 프로파일 없음 (실시간 프로파일 저장 전)
 
 ---
 
@@ -726,7 +742,8 @@ GET /api/v1/sessions/{global_session_key}/full
 - 타입: Hash
 - 필드:
   - `global_session_key`: 세션 키
-  - `user_id`: 사용자 ID
+  - `user_id`: 사용자 ID (세션 생성 시 전달한 임시값)
+  - `cusno`: 고객번호 (실시간 프로파일 저장 시 cusnoS10에서 추출하여 저장)
   - `channel`: 채널 정보 (JSON 문자열)
   - `conversation_id`: 대화 ID
   - `session_state`: 세션 상태
@@ -736,7 +753,8 @@ GET /api/v1/sessions/{global_session_key}/full
   - `reference_information`: 멀티턴 컨텍스트 (JSON 문자열)
   - `turn_ids`: 턴 ID 목록 (JSON 문자열)
   - `profile`: 프로파일 (JSON 문자열)
-  - `customer_profile`: 고객 프로파일 스냅샷 (JSON 문자열)
+  - `customer_profile`: 고객 프로파일 스냅샷 (제거됨, 사용 안 함)
+  - 프로파일은 Redis에 별도 저장: `profile:realtime:{cusno}`, `profile:batch:{cusno}` (cusno는 세션의 cusno 필드 값)
   - `start_type`: 세션 진입 유형
   - `cushion_message`: 쿠션 메시지
   - `session_attributes`: 세션 속성 (JSON 문자열)
@@ -766,6 +784,26 @@ GET /api/v1/sessions/{global_session_key}/full
 - 용도: JWT ID (`jti`)로 `global_session_key` 조회
 - 참고: Refresh Token Rotation 시 기존 `jti` 매핑은 삭제되고 새 `jti` 매핑이 생성됨
 
+**프로파일 저장소**
+
+- 실시간 프로파일:
+  - 키: `profile:realtime:{cusno}` (cusno는 실시간 프로파일의 cusnoS10 값)
+  - 타입: String (JSON 문자열)
+  - TTL: 없음 (영구 저장)
+  - 저장 시점: 실시간 프로파일 업데이트 API 호출 시
+  - 저장 흐름: 실시간 프로파일에서 cusnoS10 추출 → 세션에 cusno 필드 저장 → Redis에 프로파일 저장
+
+- 배치 프로파일:
+  - 키: `profile:batch:{cusno}` (cusno는 실시간 프로파일의 cusnoS10 값)
+  - 타입: String (JSON 문자열)
+  - TTL: 없음 (영구 저장)
+  - 저장 시점: 실시간 프로파일 업데이트 API 호출 시 (MariaDB에서 조회하여 저장)
+  - 저장 흐름: 실시간 프로파일 저장 시 MariaDB에서 배치 프로파일 조회 → Redis에 저장
+
+- 프로파일 조회:
+  - 세션 조회 시 세션의 `cusno` 필드로 프로파일 조회
+  - `cusno`가 없으면 프로파일 없음 (실시간 프로파일 저장 전)
+
 ---
 
 ## 4. 환경변수 설정
@@ -785,8 +823,17 @@ SESSION_CACHE_TTL=300
 
 # JWT 설정
 JWT_SECRET_KEY=your-secret-key-here  # 암호학적으로 안전한 랜덤 문자열 (예: openssl rand -hex 32)
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES=5    # Access Token 만료 시간 (분)
-JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6   # Refresh Token 만료 시간 (분, 5분보다 약간만 길게)
+JWT_ACCESS_TOKEN_EXPIRE_SECONDS=300  # Access Token 만료 시간 (초, 기본값: 300초 = 5분)
+JWT_REFRESH_TOKEN_EXPIRE_SECONDS=330 # Refresh Token 만료 시간 (초, 기본값: 330초 = 5분 30초)
+
+# MariaDB 설정 (선택적, 배치 프로파일 조회용)
+MARIADB_HOST=my-mariadb.mariadb.svc.cluster.local  # MariaDB 호스트 (비어있으면 MariaDB 연결 안 함)
+MARIADB_PORT=3306
+MARIADB_USER=root
+MARIADB_PASSWORD=ChangeMe!
+MARIADB_DATABASE=session_manager
+MARIADB_POOL_SIZE=10
+MARIADB_MAX_OVERFLOW=20
 ```
 
 ---
@@ -797,7 +844,7 @@ JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6   # Refresh Token 만료 시간 (분, 5분보
 
 | 항목 | Sprint 4 | Sprint 5 | 설명 |
 |------|----------|----------|------|
-| 저장소 | Redis + MariaDB | Redis만 | MariaDB 완전 제거 |
+| 저장소 | Redis + MariaDB | Redis 필수, MariaDB 선택적 | MariaDB는 배치 프로파일 조회용으로만 사용 |
 | 저장 방식 | 동기(Redis) + 비동기(MariaDB) | 동기(Redis)만 | BackgroundTasks 제거 |
 | API 구조 | `/sessions` + `/contexts` | `/sessions` 통합 | 모든 API를 `/sessions`로 통합 |
 | `context_id` | 존재 | 제거 | `global_session_key`만 사용 |
@@ -810,11 +857,10 @@ JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6   # Refresh Token 만료 시간 (분, 5분보
 
 ### 코드 품질 개선 (리팩토링)
 
-- **MariaDB 제거**: 모든 MariaDB 관련 코드 제거
-  - `app/db/mariadb.py` 삭제
-  - `app/models/mariadb_models.py` 삭제
-  - `app/repositories/mariadb_*` 삭제
-  - `scripts/init_db.sql` 삭제
+- **MariaDB 선택적 통합**: 배치 프로파일 조회용으로만 사용
+  - `app/db/mariadb.py`: MariaDB 연결 관리 (MARIADB_HOST 설정 시에만 초기화)
+  - `app/repositories/mariadb_batch_profile_repository.py`: 배치 프로파일 조회용
+  - MariaDB 연결 정보가 없어도 서비스 정상 동작 (배치 프로파일만 None 반환)
 - **API 통합**: `/contexts` 엔드포인트를 `/sessions`로 통합
   - `app/api/v1/contexts.py` 삭제
   - `app/api/v1/sessions.py`에 통합

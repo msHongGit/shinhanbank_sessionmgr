@@ -1,6 +1,6 @@
 """
-Session Manager - Test Configuration and Fixtures (v4.0)
-Sprint 2: Redis Integration Tests
+Session Manager - Test Configuration and Fixtures (v5.0)
+Sprint 5: Redis + MariaDB Integration Tests
 """
 
 import os
@@ -12,60 +12,50 @@ from fastapi.testclient import TestClient
 # 모든 환경에서 REDIS_URL 필수
 # - 로컬: .env 파일에 Azure Redis 설정
 # - CI: GitHub Actions workflow에서 설정
-
-# v4.0: 테스트에서는 실제 Redis를 사용하고, Profile만 Mock으로 주입
+# v5.0: 테스트에서는 실제 Redis와 실제 MariaDB를 사용
 from app.main import app
-from app.repositories.mock import MockProfileRepository
-from app.schemas import (
-    ConversationTurn,
-    CustomerProfile,
-    ProfileAttribute,
-)
+from app.schemas import ConversationTurn, CustomerProfile, ProfileAttribute
 from app.services.session_service import SessionService
 
 
-class MockBatchProfileRepository:
-    """Mock Batch Profile Repository for testing"""
-    
-    def __init__(self):
-        self._batch_profiles = {
-            "0616001905": {
-                "daily": {
-                    "CUSNO": "0616001905",
-                    "STD_DT": "20250121",
-                    "LM1_SDD_ILBAN_BOYU_ACNT": 1000000,
-                    "LM1_MMF_BOYU_ACNT": 500000,
-                },
-                "monthly": {
-                    "CUSNO": "0616001905",
-                    "STD_YM": "202501",
-                    "LM1_SDD_ILBAN_BOYU_ACNT": 1000000,
-                    "LM1_MMF_BOYU_ACNT": 500000,
-                }
-            }
-        }
-    
-    def get_batch_profile(self, user_id: str):
-        """배치 프로파일 조회"""
-        return self._batch_profiles.get(user_id)
-    
-    def get_profile(self, user_id: str, context_id: str | None = None, **kwargs):
-        """기존 프로파일 조회 (호환성을 위해 None 반환)"""
-        # get_merged_profile에서 호출되지만, 배치 프로파일은 get_batch_profile로 조회
-        return None
+@pytest.fixture(autouse=True)
+def _reset_redis_client():
+    """각 테스트마다 Redis 클라이언트 초기화 (이벤트 루프 충돌 방지)
+
+    TestClient가 각 테스트마다 새로운 이벤트 루프를 생성하고 닫기 때문에,
+    전역 Redis 클라이언트를 재사용하면 "Event loop is closed" 에러가 발생합니다.
+    따라서 테스트 환경에서는 매번 새로 생성하되, Redis 연결 풀은 내부적으로 재사용됩니다.
+    """
+    import app.db.redis as redis_module
+
+    # Redis 클라이언트를 None으로 초기화 (매 테스트마다 새로 생성되도록)
+    redis_module._redis_client = None
+
+    yield
+
+    # Cleanup은 생략 (테스트 환경에서는 Redis 클라이언트를 명시적으로 닫지 않음)
+    # TestClient가 사용하는 이벤트 루프와 충돌을 피하기 위함
 
 
 @pytest.fixture
 def client():
-    """FastAPI TestClient using real Redis for sessions/contexts and Mock profile data."""
-
+    """FastAPI TestClient using real Redis and real MariaDB."""
     from app.api.v1.sessions import get_session_service
 
-    # Batch Profile Repository를 Mock으로 주입
-    profile_repo = MockBatchProfileRepository()
+    # 실제 MariaDB Batch Profile Repository 사용 (설정되어 있으면)
+    profile_repo = None
+    try:
+        from app.repositories.mariadb_batch_profile_repository import MariaDBBatchProfileRepository
 
-    # SessionService는 기본적으로 RedisSessionRepository를 사용하고,
-    # 여기서 Batch Profile Repository만 Mock 으로 주입한다.
+        profile_repo = MariaDBBatchProfileRepository()
+    except Exception as e:
+        # MariaDB 연결 정보가 없으면 None으로 두고 테스트 진행
+        # (일부 테스트는 MariaDB 없이도 실행 가능)
+        import logging
+        logging.getLogger(__name__).debug(f"MariaDB connection not available: {e}")
+        profile_repo = None
+
+    # SessionService는 실제 Redis와 실제 MariaDB를 사용
     def override_session_service():
         return SessionService(profile_repo=profile_repo)
 
@@ -76,18 +66,6 @@ def client():
 
     # Cleanup
     app.dependency_overrides.clear()
-
-
-@pytest.fixture(autouse=True)
-def reset_mock_repositories():
-    """테스트 간 Mock Profile Repository 상태 보장.
-
-    현재 구현에서는 MockProfileRepository 가 내부적으로 demo/user_vip 사용자에 대한
-    고정 데이터를 가지고 있으므로, 여기서는 인스턴스 초기화만 보장한다.
-    """
-
-    MockProfileRepository()  # singleton 초기화 (mock 데이터 로드)
-    yield
 
 
 # ============ Test Headers (JWT 기반 인증으로 전환, API Key 제거) ============

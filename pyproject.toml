@@ -1,23 +1,28 @@
 [project]
 name = "session-manager"
-version = "3.0.0"
+version = "5.0.0"
 description = "은행 AI Agent 시스템 세션 관리 서비스"
 requires-python = ">=3.11"
 dependencies = [
+    # Web Framework
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
     "pydantic>=2.5.3",
     "pydantic-settings>=2.1.0",
+    # Database (MariaDB)
     "sqlalchemy[asyncio]>=2.0.25",
-    "asyncpg>=0.29.0",
-    "alembic>=1.13.1",
+    "pymysql>=1.1.0",
+    "aiomysql>=0.2.0",
+    "cryptography>=42.0.0",  # MariaDB 연결 및 암호화에 필요
+    # Redis (Async)
     "redis>=5.0.1",
-    "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
+    # HTTP Client
     "httpx>=0.26.0",
+    # Utilities
     "python-multipart>=0.0.6",
     "python-dotenv>=1.0.0",
-    "orjson>=3.9.10",
+    # JWT (HS256만 사용하므로 cryptography extra 불필요, 하지만 cryptography는 MariaDB용으로 별도 필요)
+    "PyJWT>=2.8.0",
 ]
 
 [project.optional-dependencies]
@@ -75,13 +80,15 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-asyncio_mode = "auto"
+addopts = "-v --tb=short"
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "e2e: End-to-end tests",
     "slow: Slow tests",
 ]
+# 참고: async 테스트가 필요하면 @pytest.mark.asyncio 데코레이터 사용
+# asyncio_mode는 pytest-asyncio 플러그인이 설치되어 있어도 경고 발생하므로 제거
 
 [tool.coverage.run]
 omit = [

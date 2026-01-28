@@ -216,11 +216,14 @@ class SessionCreateRequest(BaseModel):
     """초기 세션 생성 요청 (AGW → SM)
 
     Session Manager가 Global Session Key를 생성하여 반환하며,
-    요청 바디는 userId 를 필수로 사용하고,
+    요청 바디는 userId 를 선택적으로 사용하고,
     channel 은 EventType / EventChannel 정보를 담는 딕셔너리로 사용한다.
+
+    참고: user_id는 세션 생성 시 임시값으로 저장되며,
+    실제 고객번호(cusno)는 실시간 프로파일 저장 시 cusnoS10에서 추출됩니다.
     """
 
-    user_id: str = Field(..., alias="userId", description="사용자 ID")
+    user_id: str | None = Field(None, alias="userId", description="사용자 ID (선택)")
     channel: ChannelInfo | None = Field(
         None,
         description="채널/이벤트 정보 (eventType: 세션 진입 유형, eventChannel: 호출 채널)",
@@ -263,7 +266,6 @@ class SessionResolveResponse(BaseModel):
     """세션 조회 응답"""
 
     global_session_key: str = Field(..., description="Global 세션 키")
-    user_id: str = Field(..., description="세션 사용자 ID")
     channel: ChannelInfo | None = Field(None, description="세션 채널/이벤트 정보 (EventType, EventChannel)")
     agent_session_key: str | None = Field(None, description="업무 Agent 세션 키")
     session_state: SessionState = Field(..., description="세션 상태")
@@ -526,7 +528,6 @@ class SessionVerifyResponse(BaseModel):
     """토큰 검증 및 세션 정보 조회 응답"""
 
     global_session_key: str = Field(..., description="Global 세션 키")
-    user_id: str = Field(..., description="사용자 ID")
     session_state: str = Field(..., description="세션 상태")
     is_alive: bool = Field(..., description="세션 생존 여부")
     expires_at: datetime | None = Field(None, description="만료 시각")
@@ -554,9 +555,7 @@ class RealtimePersonalContextRequest(BaseModel):
     """실시간 프로파일 업데이트 요청"""
 
     global_session_key: str = Field(..., description="Global 세션 키")
-    profile_data: dict[str, Any] = Field(
-        ..., description="실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)"
-    )
+    profile_data: dict[str, Any] = Field(..., description="실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)")
 
 
 class RealtimePersonalContextResponse(BaseModel):

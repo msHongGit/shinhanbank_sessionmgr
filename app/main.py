@@ -1,6 +1,6 @@
-"""Session Manager - Main Application (v5.0, Sprint 5).
-"""
+"""Session Manager - Main Application (v5.0, Sprint 5)."""
 
+import logging
 from contextlib import asynccontextmanager
 from textwrap import dedent
 
@@ -9,24 +9,38 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
-from app.api.v1.router import api_router
+from app.api.v1.sessions import router as sessions_router
 from app.config import ALLOWED_ORIGINS, API_PREFIX, DEBUG
 from app.core.exceptions import SessionManagerError
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan - Redis 연결"""
+    """Application lifespan - Redis 및 MariaDB 연결 초기화"""
     # Startup
     print("🚀 Session Manager starting...")
 
-    # Sprint 5: Redis만 사용
-    # Redis 연결은 각 Repository에서 필요 시 초기화됨
-    print("✅ Session Manager started (Redis only)")
+    # Redis 비동기 초기화
+    from app.db.redis import init_redis
+
+    await init_redis()
+
+    # MariaDB 비동기 초기화 (선택적, MARIADB_HOST가 설정되어 있을 때만)
+    from app.db.mariadb import init_mariadb
+
+    init_mariadb()
+
+    print("✅ Session Manager started")
 
     yield
 
     # Shutdown
+    from app.db.redis import close_redis
+
+    await close_redis()
     print("👋 Session Manager shutting down...")
 
 
@@ -35,8 +49,6 @@ app = FastAPI(
     description=dedent(
         """
         ## Session Manager v5.0 (Sprint 5)
-
-       세션/컨텍스트 관리 서비스
 
         ### 주요 기능
 
@@ -51,9 +63,12 @@ app = FastAPI(
         - 주요 필드: conversation_history, current_intent, turn_count, task_queue_status 등
 
         **개인화 프로파일**
-        - 세션 생성 시 user_id 기반 자동 조회 및 스냅샷 저장
-        - 실시간 프로파일 업데이트 API로 Redis에 영구 저장 및 세션 스냅샷 업데이트
-        - 세션 조회 시 customer_profile 필드로 반환 (배치 + 실시간 통합, 실시간 우선)
+        - 실시간 프로파일: 실시간 프로파일 업데이트 API로 Redis 저장
+          - cusnoS10이 있으면: 세션에 cusno 저장, Redis에 profile:realtime:{cusno} 저장, 배치 프로파일 조회 및 저장
+          - cusnoS10이 없으면: 세션에 cusno 저장하지 않음, Redis에 profile:realtime:{global_session_key} 저장, 배치 프로파일 조회 안 함
+        - 배치 프로파일: MariaDB에서 조회하여 Redis에 저장 (MariaDB 연결 정보가 있고 cusnoS10이 있을 때만)
+        - 세션 조회 시 batch_profile과 realtime_profile을 분리하여 반환
+        - 세션 조회 시 세션의 cusno 필드로 프로파일 조회 (cusno가 없으면 global_session_key로 실시간 프로파일만 조회)
 
         **SOL API 연동 로그**
         - 실시간 API 호출 결과를 `turn_id` 기반 메타데이터로 저장
@@ -62,25 +77,31 @@ app = FastAPI(
         ### 주요 API 엔드포인트
 
         **Sessions API** (`/api/v1/sessions`)
-        - `POST /sessions` - 세션 생성 (JWT 토큰 발급)
-        - `GET /sessions/{key}` - 세션 조회
+        - `POST /sessions` - 세션 생성 (JWT 토큰 발급, userId 선택적)
+        - `GET /sessions/{key}` - 세션 조회 (user_id 응답 제외)
         - `GET /sessions/ping` - 세션 생존 확인 (토큰 기반, TTL 연장 없음)
-        - `GET /sessions/verify` - 토큰 검증 및 세션 정보 조회
+        - `GET /sessions/verify` - 토큰 검증 및 세션 정보 조회 (user_id 응답 제외)
         - `POST /sessions/refresh` - 토큰 갱신 (Refresh Token Rotation, 세션 TTL 연장)
         - `PATCH /sessions/{key}/state` - 세션 상태 업데이트
         - `DELETE /sessions/{key}` - 세션 종료 (내부 서비스용)
         - `DELETE /sessions` - 세션 종료 (토큰 기반)
         - `POST /sessions/{key}/api-results` - 실시간 API 연동 결과 저장
-        - `POST /sessions/{key}/realtime-personal-context` - 실시간 프로파일 업데이트
+        - `POST /sessions/{key}/realtime-personal-context` - 실시간 프로파일 업데이트 (cusnoS10 선택적)
         - `GET /sessions/{key}/full` - 세션 전체 정보 조회 (세션 + 턴 목록)
 
         ### 저장소
 
-        - **Redis**: 세션/턴 메타데이터 저장 (기본 TTL 300초)
+        - **Redis**: 세션/턴 메타데이터 및 프로파일 저장
+          - 세션: 기본 TTL 300초 (5분)
+          - 프로파일: TTL 없음 (영구 저장)
+          - 키 구조: `session:{global_session_key}`, `profile:realtime:{cusno|global_session_key}`, `profile:batch:{cusno}`
+        - **MariaDB** (선택적): 배치 프로파일 조회용 (IFC_CUS_DD_SMRY_TOT, IFC_CUS_MMBY_SMRY_TOT)
+          - MariaDB 연결 정보가 없어도 서비스 정상 동작 (배치 프로파일만 None 반환)
 
         ### 환경
 
-        - 로컬/Dev/운영: Redis 기반 (환경변수 기반 설정, JWT 토큰 기반 인증)
+        - 로컬/Dev/운영: Redis 기반 (필수), MariaDB (선택적)
+        - 환경변수 기반 설정, JWT 토큰 기반 인증
         """
     ),
     version="5.0.0",
@@ -131,7 +152,7 @@ def health_check():
     return root_health_check()
 
 
-app.include_router(api_router, prefix=API_PREFIX)
+app.include_router(sessions_router, prefix=API_PREFIX)
 
 
 def custom_openapi():

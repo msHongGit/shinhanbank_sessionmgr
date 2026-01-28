@@ -354,11 +354,10 @@ JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6  # 5분보다 약간만 길게 설정
 ## 2. 개인화 프로파일 적재
 
 ### 2.1 배치 프로파일
-- **현재 상태**: Mock 데이터로 구현됨
-- **구현 필요**: 실제 MariaDB에서 월/일 기준 2개 테이블 조회
-- **저장 방식**: Long-term 컨텍스트로 관리
-- **저장 시점**: 세션 생성 시
-- **조회 시**: 실시간 프로파일과 통합하여 Master Agent에 제공
+- **현재 상태**: 실제 MariaDB에서 월/일 기준 2개 테이블 조회 구현 완료
+- **저장 방식**: Redis에 영구 저장 (TTL 없음)
+- **저장 시점**: 실시간 프로파일 저장 시 (세션 생성 시에는 조회하지 않음)
+- **조회 시**: batch_profile과 realtime_profile을 분리하여 Master Agent에 제공
 
 ### 2.2 실시간 프로파일
 
@@ -371,12 +370,15 @@ JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6  # 5분보다 약간만 길게 설정
   1. SSE GW → AGW: 사용자 정보 저장 요청 (access_token 포함)
   2. AGW → Session Manager: `GET /api/v1/sessions/verify` 호출하여 global_session_key 획득
   3. AGW → Session Manager: `POST /api/v1/sessions/{global_session_key}/realtime-personal-context` 호출
-- **구현 필요**
 
 #### 기능
-- Redis에 `profile:realtime:{user_id}` 저장
-- 세션의 `customer_profile` 스냅샷 업데이트
-- 배치 프로파일과 통합하여 Master Agent에 제공
+- 실시간 프로파일에서 `cusnoS10` 추출 (CUSNO)
+- 세션에 `cusno` 필드 저장 (세션 정보와 cusno 매핑)
+- Redis에 `profile:realtime:{cusno}` 저장 (TTL 없음, 영구 저장)
+- MariaDB에서 배치 프로파일 조회 (`CUSNO = cusnoS10` 값으로 조회)
+- Redis에 `profile:batch:{cusno}` 저장 (TTL 없음, 영구 저장)
+- 세션 조회 시 세션의 `cusno` 필드로 프로파일 조회 (user_id 기반 조회 제거)
+- batch_profile과 realtime_profile을 분리하여 반환 (통합하지 않음)
 
 ---
 

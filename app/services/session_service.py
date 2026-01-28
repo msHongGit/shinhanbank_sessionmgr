@@ -1,63 +1,57 @@
-"""Session Manager - Session Service (v5.0 - Sync).
+"""Session Manager - Session Service (v5.0 - Async).
 
-세션 관리 핵심 로직 (Sync 방식, Redis만 사용)
+세션 관리 핵심 로직 (Async 방식, Redis + MariaDB 사용)
 """
 
 import contextlib
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from app.services.auth_service import AuthService
+    from app.services.profile_service import ProfileService
 
 from fastapi import BackgroundTasks, HTTPException
 
-from app.config import (
-    GLOBAL_SESSION_PREFIX,
-    SESSION_CACHE_TTL,
-    JWT_SECRET_KEY,
-)
+from app.config import GLOBAL_SESSION_PREFIX
 from app.core.exceptions import SessionNotFoundError
 from app.core.utils import datetime_to_iso, safe_json_dumps, safe_json_parse
+from app.db.redis import RedisHelper, get_redis_client
 from app.repositories import (
     RedisSessionRepository,
 )
-
-logger = logging.getLogger(__name__)
 from app.schemas.common import (
     AgentType,
     ChannelInfo,
-    CustomerProfile,
     DialogContext,
-    DialogTurn,
     LastEvent,
-    ProfileAttribute,
-    RealtimePersonalContextRequest,
-    RealtimePersonalContextResponse,
     SessionCloseRequest,
     SessionCloseResponse,
     SessionCreateRequest,
     SessionCreateResponse,
     SessionPatchRequest,
     SessionPatchResponse,
-    SessionPingResponse,
     SessionResolveRequest,
     SessionResolveResponse,
     SessionState,
-    SessionVerifyResponse,
     SubAgentStatus,
     TaskQueueStatus,
-    TokenRefreshRequest,
-    TokenRefreshResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SessionService:
-    """세션 관리 서비스 (Sync)"""
+    """세션 관리 서비스 (Async)"""
 
     def __init__(
         self,
         session_repo=None,
         profile_repo=None,
+        auth_service=None,
+        profile_service=None,
     ):
         if session_repo is not None:
             # 명시적으로 Repository가 주입된 경우 그대로 사용
@@ -68,6 +62,21 @@ class SessionService:
 
         # Profile Repository는 주입된 값을 그대로 사용 (없으면 None)
         self.profile_repo = profile_repo
+
+        # AuthService와 ProfileService는 주입받거나 생성
+        if auth_service is not None:
+            self.auth_service = auth_service
+        else:
+            from app.services.auth_service import AuthService
+
+            self.auth_service = AuthService(self.session_repo)
+
+        if profile_service is not None:
+            self.profile_service = profile_service
+        else:
+            from app.services.profile_service import ProfileService
+
+            self.profile_service = ProfileService(self.session_repo, self.profile_repo)
 
     # -------------------------------------------------------------------------
     # 내부 유틸리티
@@ -118,128 +127,22 @@ class SessionService:
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         return f"{prefix}_{timestamp}_{uuid4().hex[:6]}"
 
-    def _load_customer_profile(self, session: dict) -> CustomerProfile | None:
-        """세션 딕셔너리에서 고객 프로파일 스냅샷 복원"""
-        raw = session.get("customer_profile")
-        if not raw:
-            return None
-
-        if isinstance(raw, dict):
-            try:
-                return CustomerProfile(**raw)
-            except Exception:
-                return None
-
-        if isinstance(raw, str):
-            data = safe_json_parse(raw)
-            if isinstance(data, dict):
-                try:
-                    return CustomerProfile(**data)
-                except (ValueError, TypeError):
-                    return None
-
-        return None
-
-    def _merge_profiles(
-        self,
-        batch_profile: CustomerProfile | None,
-        realtime_profile: dict[str, Any] | None,
-    ) -> CustomerProfile | None:
-        """배치 프로파일과 실시간 프로파일 통합 (실시간 우선)
-
-        Args:
-            batch_profile: 배치 프로파일
-            realtime_profile: 실시간 프로파일 (dict, redis_data.md 구조)
-
-        Returns:
-            통합된 CustomerProfile 또는 None
-        """
-        if not batch_profile and not realtime_profile:
-            return None
-
-        # 실시간 프로파일이 있으면 우선 사용
-        if realtime_profile:
-            # 실시간 프로파일의 모든 필드를 속성으로 변환
-            attributes = []
-            segment = None
-
-            for key, value in realtime_profile.items():
-                if value is not None and value != "":
-                    attributes.append(
-                        ProfileAttribute(
-                            key=key,
-                            value=str(value),
-                            source_system="REALTIME",
-                        )
-                    )
-
-                    # 세그먼트 관련 필드 추출 (membGdS2 등)
-                    if key == "membGdS2":
-                        segment = str(value)
-
-            return CustomerProfile(
-                user_id=realtime_profile.get(
-                    "cusnoS10", batch_profile.user_id if batch_profile else ""
-                ),
-                attributes=attributes,
-                segment=segment,
-                preferences={"source": "realtime"},
-            )
-
-        # 실시간 프로파일이 없으면 배치 프로파일 사용
-        return batch_profile
-
-    def get_merged_profile(self, user_id: str) -> CustomerProfile | None:
-        """배치 + 실시간 프로파일 통합 조회
-
-        Args:
-            user_id: 사용자 ID
-
-        Returns:
-            통합된 CustomerProfile (실시간 우선)
-        """
-        # 배치 프로파일 조회
-        batch_profile = None
-        if self.profile_repo:
-            batch_profile = self.profile_repo.get_profile(
-                user_id=user_id, context_id=None
-            )
-
-        # 실시간 프로파일 조회
-        from app.db.redis import RedisHelper, get_redis_client
-
-        redis_client = get_redis_client()
-        helper = RedisHelper(redis_client)
-        realtime_profile = helper.get_realtime_profile(user_id)
-
-        # 통합
-        return self._merge_profiles(batch_profile, realtime_profile)
-
     # ============ AGW API ============
 
-    def create_session(self, request: SessionCreateRequest, background_tasks: BackgroundTasks | None = None) -> SessionCreateResponse:
+    async def create_session(self, request: SessionCreateRequest, background_tasks: BackgroundTasks | None = None) -> SessionCreateResponse:
         """초기 세션 생성 (AGW → SM) - Global Session Key 자동 생성
 
         세션 생성 흐름:
         1. 세션 객체 생성
-        2. 실시간 프로파일만 조회 (배치 프로파일은 CUSNO 없어서 조회 불가)
-        3. Redis 즉시 저장 (세션 스냅샷)
+        2. Redis 즉시 저장 (세션 스냅샷)
+        3. JWT 토큰 발급
+
+        참고: 프로파일은 세션 생성 시점에는 조회하지 않음 (CUSNO 없음)
+        - 실시간 프로파일: 실시간 프로파일 저장 API 호출 시 cusnoS10으로 저장
+        - 배치 프로파일: 실시간 프로파일 저장 API 호출 시 cusnoS10 값을 CUSNO로 사용하여 MariaDB 조회
         """
         # Session Manager가 Global Session Key 생성
         global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
-
-        # 고객 프로파일 조회 (실시간 프로파일만, 배치 프로파일은 나중에)
-        profile_data = None
-        
-        # 실시간 프로파일만 조회 (배치 프로파일은 실시간 프로파일 저장 시 조회)
-        from app.db.redis import RedisHelper, get_redis_client
-        redis_client = get_redis_client()
-        helper = RedisHelper(redis_client)
-        realtime_profile = helper.get_realtime_profile(request.user_id)
-        
-        if realtime_profile:
-            # 실시간 프로파일만 있으면 그것만 저장
-            profile_data = {"realtime": realtime_profile}
 
         # 채널 및 세션 진입 유형은 channel 정보에서 파생 (없으면 기본값 사용)
         start_type_value: str | None = None
@@ -249,59 +152,51 @@ class SessionService:
         else:
             channel_value = "utterance"
 
+        # user_id가 없으면 빈 문자열로 저장 (선택적 필드)
+        user_id = request.user_id or ""
+
         # Redis 즉시 저장 (세션 스냅샷)
-        self.session_repo.create(
+        # 프로파일은 세션에 저장하지 않음 (Redis에 별도 저장)
+        await self.session_repo.create(
             global_session_key=global_session_key,
-            user_id=request.user_id,
+            user_id=user_id,
             channel=channel_value,
-            conversation_id="",  # Pass empty string instead of conversation_id
+            conversation_id="",
             session_state=SessionState.START.value,
             task_queue_status=TaskQueueStatus.NULL.value,
             subagent_status=SubAgentStatus.UNDEFINED.value,
-            customer_profile=profile_data,
+            customer_profile=None,  # 프로파일은 세션에 저장하지 않음
             start_type=start_type_value,
         )
 
-        # JWT 토큰 발급
-        from app.core.jwt import create_access_token, create_refresh_token
-        from app.db.redis import get_redis_client
-        
-        # jti 생성
-        jti = str(uuid4())
-        
-        # Redis에 jti -> global_session_key 매핑 저장
-        redis_client = get_redis_client()
-        redis_client.setex(f"jti:{jti}", SESSION_CACHE_TTL, global_session_key)
-        
-        # Access Token 및 Refresh Token 발급
-        access_token = create_access_token(jti, request.user_id, JWT_SECRET_KEY)
-        refresh_token = create_refresh_token(jti, request.user_id, JWT_SECRET_KEY)
+        # JWT 토큰 발급 (AuthService 위임)
+        tokens = await self.auth_service.create_tokens(user_id, global_session_key)
 
         # 응답 반환 (토큰 포함)
         return SessionCreateResponse(
             global_session_key=global_session_key,
-            access_token=access_token,
-            refresh_token=refresh_token,
-            jti=jti,
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
+            jti=tokens["jti"],
         )
 
     # ============ MA API ============
 
-    def resolve_session(self, request: SessionResolveRequest) -> SessionResolveResponse:
+    async def resolve_session(self, request: SessionResolveRequest) -> SessionResolveResponse:
         """세션 조회 (MA → SM)"""
-        session = self.session_repo.get(request.global_session_key)
+        session = await self.session_repo.get(request.global_session_key)
 
         if not session:
             raise SessionNotFoundError(request.global_session_key)
 
         agent_session_key = None
         if request.agent_type == AgentType.TASK and request.agent_id:
-            mapping = self.session_repo.get_local_mapping(
+            mapping = await self.session_repo.get_local_mapping(
                 request.global_session_key,
                 request.agent_id,
             )
             if mapping:
-                # Redis와 Mock 모두 "agent_session_key" 사용
+                # agent_session_key 사용
                 agent_session_key = mapping.get("agent_session_key")
 
         task_queue_status = TaskQueueStatus(session.get("task_queue_status", "null"))
@@ -359,31 +254,24 @@ class SessionService:
         # 현재는 최소 필드(round-trip 보장용)만 제공하고 dialog_context 는 None 으로 둔다.
         dialog_context: DialogContext | None = None
 
-        # 배치 프로파일 조회
+        # 배치 프로파일과 실시간 프로파일 조회 (ProfileService 위임)
+        # 세션에 저장된 cusno로 프로파일 조회
         user_id = session.get("user_id", "")
-        batch_profile_data = None
-        from app.db.redis import RedisHelper, get_redis_client
-        redis_client = get_redis_client()
-        helper = RedisHelper(redis_client)
-        
-        # Redis에서 배치 프로파일 조회
-        batch_profile_data = helper.get_batch_profile(user_id)
-        
-        # Redis에 없으면 MariaDB에서 조회하여 저장
-        if not batch_profile_data and self.profile_repo:
-            batch_profile_data = self.profile_repo.get_batch_profile(user_id)
-            if batch_profile_data:
-                helper.set_batch_profile(user_id, batch_profile_data)
-        
-        # 실시간 프로파일 조회
-        realtime_profile_data = helper.get_realtime_profile(user_id)
-        
-        # 통합 프로파일 생성 (기존 로직 유지)
-        merged_profile = self._load_customer_profile(session)
+        cusno = session.get("cusno")  # 실시간 프로파일 저장 시 저장된 값
+
+        if cusno:
+            # 세션에 cusno가 있으면 해당 cusno로 프로파일 조회
+            batch_profile_data, realtime_profile_data = await self.profile_service.get_batch_and_realtime_profiles(cusno)
+        else:
+            # cusno가 없으면: cusnoS10 없이 저장된 경우일 수 있음
+            # global_session_key로 실시간 프로파일 조회 시도 (배치는 조회 불가)
+            redis_client = get_redis_client()
+            helper = RedisHelper(redis_client)
+            realtime_profile_data = await helper.get_realtime_profile(request.global_session_key)
+            batch_profile_data = None  # 배치 프로파일은 CUSNO 없이 조회 불가
 
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
-            user_id=user_id,
             channel=channel_info,
             agent_session_key=agent_session_key,
             session_state=SessionState(session.get("session_state", "start")),
@@ -391,7 +279,7 @@ class SessionService:
             task_queue_status=task_queue_status,
             subagent_status=SubAgentStatus(session.get("subagent_status", "undefined")),
             last_event=last_event,
-            customer_profile=merged_profile,
+            customer_profile=None,  # 통합 프로파일 제거
             batch_profile=batch_profile_data,  # 배치 프로파일 (일별+월별)
             realtime_profile=realtime_profile_data,  # 실시간 프로파일
             active_task=active_task,
@@ -405,14 +293,16 @@ class SessionService:
             dialog_context=dialog_context,
         )
 
-    def patch_session_state(self, request: SessionPatchRequest, background_tasks: BackgroundTasks | None = None) -> SessionPatchResponse:
+    async def patch_session_state(
+        self, request: SessionPatchRequest, background_tasks: BackgroundTasks | None = None
+    ) -> SessionPatchResponse:
         """세션 상태 업데이트 (MA → SM)
 
         세션 업데이트 흐름:
         1. 세션 상태 업데이트
         2. Redis 즉시 저장 (세션 스냅샷)
         """
-        session = self.session_repo.get(request.global_session_key)
+        session = await self.session_repo.get(request.global_session_key)
         if not session:
             raise SessionNotFoundError(request.global_session_key)
 
@@ -422,10 +312,10 @@ class SessionService:
         # 세션 상태는 전달된 경우에만 변경
         if request.session_state is not None:
             updates["session_state"] = request.session_state.value
-            
+
             # Invoke 시(사용자 메시지 전송 시) TTL 연장 (jwd.md 설계: Sliding Expiration on Invoke)
             if request.session_state == SessionState.TALK:
-                self.session_repo.refresh_ttl(request.global_session_key)
+                await self.session_repo.refresh_ttl(request.global_session_key)
 
         patch = request.state_patch
         if patch is not None:
@@ -473,7 +363,7 @@ class SessionService:
             # Agent 세션 매핑 등록 (세션 hash에 저장)
             if patch.agent_session_key and patch.last_agent_id:
                 agent_type_value = patch.last_agent_type.value if patch.last_agent_type else AgentType.TASK.value
-                self.session_repo.set_local_mapping(
+                await self.session_repo.set_local_mapping(
                     global_session_key=request.global_session_key,
                     agent_id=patch.last_agent_id,
                     agent_session_key=patch.agent_session_key,
@@ -494,233 +384,18 @@ class SessionService:
             if turn_ids_str:
                 updates["turn_ids"] = turn_ids_str
 
-        self.session_repo.update(request.global_session_key, **updates)
+        await self.session_repo.update(request.global_session_key, **updates)
 
         return SessionPatchResponse(status="success", updated_at=now)
 
-    def ping_session(self, global_session_key: str) -> SessionPingResponse:
-        """세션 생존 여부 확인 및 TTL 연장.
-
-        세션이 존재하면 TTL을 연장하고, 연장 후 만료 시각을 반환한다.
-        세션이 없으면 is_alive=False 와 expires_at=None 을 반환한다.
-        
-        주의: 이 메서드는 기존 API 호환성을 위해 유지되며, 
-        새로운 토큰 기반 API에서는 ping_session_by_token을 사용한다.
-        """
-
-        # 세션 존재 여부 확인
-        session = self.session_repo.get(global_session_key)
-        if not session:
-            return SessionPingResponse(is_alive=False, expires_at=None)
-
-        # TTL 연장 처리
-        refreshed = None
-        if hasattr(self.session_repo, "refresh_ttl"):
-            refreshed = self.session_repo.refresh_ttl(global_session_key)
-
-        # refresh_ttl 호출 결과가 없으면 기존 세션 정보 사용
-        snapshot = refreshed or self.session_repo.get(global_session_key) or {}
-        expires_raw = snapshot.get("expires_at")
-        expires_at = None
-        if isinstance(expires_raw, str):
-            try:
-                expires_at = datetime.fromisoformat(expires_raw)
-            except ValueError:
-                expires_at = None
-
-        return SessionPingResponse(
-            is_alive=True,
-            expires_at=expires_at,
-        )
-
-    def ping_session_by_token(self, token: str) -> SessionPingResponse:
-        """토큰 기반 세션 Ping (TTL 연장 없음)
-        
-        Args:
-            token: Access Token 문자열
-            
-        Returns:
-            SessionPingResponse: 세션 생존 여부 및 현재 만료 시각
-            
-        Raises:
-            HTTPException: 토큰이 유효하지 않은 경우 401 반환
-        """
-        from app.core.jwt_auth import get_global_session_key_from_token
-        
-        # 1. 토큰에서 global_session_key 조회
-        try:
-            global_session_key = get_global_session_key_from_token(token)
-        except HTTPException as e:
-            # 잘못된 토큰에 대해서는 401 반환
-            raise e
-        
-        # 2. 세션 조회
-        session = self.session_repo.get(global_session_key)
-        if not session:
-            return SessionPingResponse(is_alive=False, expires_at=None)
-        
-        # 3. 만료 시각 반환 (TTL 연장 안 함)
-        expires_at = None
-        expires_raw = session.get("expires_at")
-        if isinstance(expires_raw, str):
-            try:
-                expires_at = datetime.fromisoformat(expires_raw)
-            except ValueError:
-                expires_at = None
-        
-        return SessionPingResponse(is_alive=True, expires_at=expires_at)
-
-    def verify_token_and_get_session(self, token: str) -> SessionVerifyResponse:
-        """토큰 검증 및 세션 정보 조회
-        
-        Args:
-            token: Access Token 문자열
-            
-        Returns:
-            SessionVerifyResponse: 세션 정보
-        """
-        from app.core.jwt import verify_token
-        from app.db.redis import get_redis_client
-        
-        # 1. 토큰 검증
-        try:
-            payload = verify_token(token, JWT_SECRET_KEY)
-        except ValueError as e:
-            raise HTTPException(status_code=401, detail=str(e))
-        
-        # 2. 토큰 타입 확인
-        if payload.get("type") != "access":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        
-        # 3. jti 추출 및 global_session_key 조회
-        jti = payload.get("jti")
-        if not jti:
-            raise HTTPException(status_code=401, detail="Invalid token: jti not found")
-        
-        redis_client = get_redis_client()
-        global_session_key = redis_client.get(f"jti:{jti}")
-        
-        if not global_session_key:
-            raise HTTPException(status_code=401, detail="Token expired or invalid")
-        
-        global_session_key = global_session_key if isinstance(global_session_key, str) else global_session_key.decode()
-        
-        # 4. 세션 조회
-        session = self.session_repo.get(global_session_key)
-        if not session:
-            return SessionVerifyResponse(
-                global_session_key=global_session_key,
-                user_id=payload.get("sub", ""),
-                session_state="",
-                is_alive=False,
-                expires_at=None,
-            )
-        
-        # 5. 만료 시각 파싱
-        expires_at = None
-        expires_raw = session.get("expires_at")
-        if isinstance(expires_raw, str):
-            try:
-                expires_at = datetime.fromisoformat(expires_raw)
-            except ValueError:
-                expires_at = None
-        
-        return SessionVerifyResponse(
-            global_session_key=global_session_key,
-            user_id=session.get("user_id", ""),
-            session_state=session.get("session_state", ""),
-            is_alive=True,
-            expires_at=expires_at,
-        )
-
-    def refresh_token(self, refresh_token: str) -> TokenRefreshResponse:
-        """토큰 갱신
-        
-        Args:
-            refresh_token: Refresh Token 문자열
-            
-        Returns:
-            TokenRefreshResponse: 새 토큰 및 세션 정보
-        """
-        from app.core.jwt import verify_token, create_access_token, create_refresh_token
-        from app.db.redis import get_redis_client
-        
-        # 1. Refresh Token 검증
-        try:
-            payload = verify_token(refresh_token, JWT_SECRET_KEY)
-        except ValueError as e:
-            raise HTTPException(status_code=401, detail=str(e))
-        
-        # 2. 토큰 타입 확인
-        if payload.get("type") != "refresh":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        
-        # 3. jti 추출 및 global_session_key 조회
-        jti = payload.get("jti")
-        if not jti:
-            raise HTTPException(status_code=401, detail="Invalid token: jti not found")
-        
-        redis_client = get_redis_client()
-        global_session_key = redis_client.get(f"jti:{jti}")
-        
-        if not global_session_key:
-            raise HTTPException(status_code=401, detail="Token expired or invalid")
-        
-        global_session_key = global_session_key if isinstance(global_session_key, str) else global_session_key.decode()
-        
-        # 4. 세션 TTL 연장 (Refresh Token 갱신은 사용자 활동의 일부)
-        self.session_repo.refresh_ttl(global_session_key)
-        
-        # 5. 새 jti 생성 (Refresh Token Rotation)
-        from uuid import uuid4
-        new_jti = str(uuid4())
-        
-        # 6. 새 토큰 발급 (새 jti 사용)
-        user_id = payload.get("sub", "")
-        new_access_token = create_access_token(new_jti, user_id, JWT_SECRET_KEY)
-        new_refresh_token = create_refresh_token(new_jti, user_id, JWT_SECRET_KEY)
-        
-        # 7. 기존 jti 매핑 삭제 및 새 jti 매핑 저장
-        redis_client.delete(f"jti:{jti}")
-        redis_client.setex(f"jti:{new_jti}", SESSION_CACHE_TTL, global_session_key)
-        
-        return TokenRefreshResponse(
-            access_token=new_access_token,
-            refresh_token=new_refresh_token,
-            global_session_key=global_session_key,
-            jti=new_jti,
-        )
-
-    def close_session_by_token(self, token: str, close_reason: str | None = None) -> SessionCloseResponse:
-        """토큰 기반 세션 종료
-        
-        Args:
-            token: Access Token 문자열
-            close_reason: 종료 사유
-            
-        Returns:
-            SessionCloseResponse: 세션 종료 응답
-        """
-        from app.core.jwt_auth import get_global_session_key_from_token
-        
-        # 1. 토큰에서 global_session_key 조회
-        global_session_key = get_global_session_key_from_token(token)
-        
-        # 2. 기존 close_session 로직 사용
-        request = SessionCloseRequest(
-            global_session_key=global_session_key,
-            close_reason=close_reason,
-        )
-        return self.close_session(request)
-
-    def close_session(self, request: SessionCloseRequest, background_tasks: BackgroundTasks | None = None) -> SessionCloseResponse:
+    async def close_session(self, request: SessionCloseRequest, background_tasks: BackgroundTasks | None = None) -> SessionCloseResponse:
         """세션 종료 (MA → SM)
 
         세션 종료 흐름:
         1. 세션 상태를 END로 변경
         2. Redis 업데이트
         """
-        session = self.session_repo.get(request.global_session_key)
+        session = await self.session_repo.get(request.global_session_key)
         if not session:
             raise SessionNotFoundError(request.global_session_key)
 
@@ -734,7 +409,7 @@ class SessionService:
         if request.final_summary:
             updates["final_summary"] = request.final_summary
 
-        self.session_repo.update(request.global_session_key, **updates)
+        await self.session_repo.update(request.global_session_key, **updates)
 
         # conversation_id 없이 세션 기준 아카이브 ID 생성
         archived_id = f"arch_{request.global_session_key}"
@@ -746,67 +421,13 @@ class SessionService:
             cleaned_local_sessions=0,
         )
 
-    def update_realtime_personal_context(
-        self,
-        global_session_key: str,
-        request: RealtimePersonalContextRequest,
-    ) -> RealtimePersonalContextResponse:
-        """실시간 프로파일 업데이트
-
-        변경사항:
-        - 배치 프로파일 조회 추가 (MariaDB)
-        - 배치 프로파일을 Redis에 저장 (user_id별)
-
-        Args:
-            global_session_key: 세션 키
-            request: 실시간 프로파일 요청
-
-        Returns:
-            RealtimePersonalContextResponse
-        """
-        from app.db.redis import RedisHelper, get_redis_client
-
-        # 1. 세션 존재 확인 및 user_id 추출
-        session = self.session_repo.get(global_session_key)
-        if not session:
-            raise SessionNotFoundError(global_session_key)
-        
-        user_id = session.get("user_id", "")
-        if not user_id:
-            raise HTTPException(status_code=400, detail="user_id not found in session")
-
-        # 2. Redis에 실시간 프로파일 저장 (CUSNO로 저장)
-        redis_client = get_redis_client()
-        helper = RedisHelper(redis_client)
-        helper.set_realtime_profile(user_id, request.profile_data)
-
-        # 3. 배치 프로파일 조회 (MariaDB) 및 Redis에 저장 (CUSNO로 저장)
-        if self.profile_repo:
-            batch_profile_data = self.profile_repo.get_batch_profile(user_id)
-            if batch_profile_data:
-                # Redis에 배치 프로파일 저장 (user_id별)
-                helper.set_batch_profile(user_id, batch_profile_data)
-
-        # 4. 통합 프로파일 조회 및 세션 업데이트
-        merged_profile = self.get_merged_profile(user_id)
-        if merged_profile:
-            profile_data = merged_profile.model_dump()
-            self.session_repo.update(
-                global_session_key,
-                customer_profile=safe_json_dumps(profile_data),
-            )
-
-        return RealtimePersonalContextResponse(
-            status="success",
-            updated_at=datetime.now(UTC),
-        )
-
 
 def get_session_service() -> SessionService:
     """SessionService 인스턴스 반환 (DI)"""
     profile_repo = None
     try:
         from app.repositories.mariadb_batch_profile_repository import MariaDBBatchProfileRepository
+
         profile_repo = MariaDBBatchProfileRepository()
     except Exception as e:
         logger.warning(f"Failed to initialize MariaDBBatchProfileRepository: {e}")

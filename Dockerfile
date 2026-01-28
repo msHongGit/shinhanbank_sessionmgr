@@ -1,4 +1,4 @@
-# Session Manager Sprint 2 - Dockerfile
+# Session Manager Sprint 5 - Dockerfile
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -9,12 +9,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Sprint 2: 최소 의존성만 설치 (curl만 필요)
+# 최소 의존성만 설치 (curl만 필요)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# uv 설치
+RUN pip install uv
+
+# pyproject.toml 기반으로 프로덕션 의존성만 설치 (dev 제외)
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
 
 COPY app/ ./app/
 
