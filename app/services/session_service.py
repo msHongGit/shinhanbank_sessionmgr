@@ -256,7 +256,6 @@ class SessionService:
 
         # 배치 프로파일과 실시간 프로파일 조회 (ProfileService 위임)
         # 세션에 저장된 cusno로 프로파일 조회
-        user_id = session.get("user_id", "")
         cusno = session.get("cusno")  # 실시간 프로파일 저장 시 저장된 값
 
         if cusno:
