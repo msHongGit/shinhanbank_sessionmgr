@@ -372,10 +372,10 @@ JWT_REFRESH_TOKEN_EXPIRE_MINUTES=6  # 5분보다 약간만 길게 설정
   3. AGW → Session Manager: `POST /api/v1/sessions/{global_session_key}/realtime-personal-context` 호출
 
 #### 기능
-- 실시간 프로파일에서 `cusnoS10` 추출 (CUSNO)
+- 실시간 프로파일에서 `cusnoN10` 추출 (CUSNO)
 - 세션에 `cusno` 필드 저장 (세션 정보와 cusno 매핑)
 - Redis에 `profile:realtime:{cusno}` 저장 (TTL 없음, 영구 저장)
-- MariaDB에서 배치 프로파일 조회 (`CUSNO = cusnoS10` 값으로 조회)
+- MariaDB에서 배치 프로파일 조회 (`CUSNO = cusnoN10` 값으로 조회)
 - Redis에 `profile:batch:{cusno}` 저장 (TTL 없음, 영구 저장)
 - 세션 조회 시 세션의 `cusno` 필드로 프로파일 조회 (user_id 기반 조회 제거)
 - batch_profile과 realtime_profile을 분리하여 반환 (통합하지 않음)

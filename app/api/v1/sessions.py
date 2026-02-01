@@ -68,8 +68,8 @@ def get_session_service() -> SessionService:
     참고:
     - AGW는 이 정보를 받아 Client에는 토큰만 전달
     - userId는 세션 생성 시 임시값으로 저장되며, 실제 고객번호(cusno)는
-      실시간 프로파일 저장 API 호출 시 cusnoS10에서 추출되어 세션에 저장
-      (cusnoS10이 없으면 세션에 cusno가 저장되지 않으며, 실시간 프로파일은 세션 키 기반으로 저장)
+      실시간 프로파일 저장 API 호출 시 cusnoN10에서 추출되어 세션에 저장
+      (cusnoN10이 없으면 세션에 cusno가 저장되지 않으며, 실시간 프로파일은 세션 키 기반으로 저장)
     """,
 )
 async def create_session(
@@ -594,15 +594,15 @@ async def get_session_full(
     - profile_data: 실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)
     
     선택 요청 필드:
-    - profile_data.cusnoS10: 고객번호 (선택, 없어도 실시간 프로파일 저장 가능)
+    - profile_data.cusnoN10: 고객번호 (선택, 없어도 실시간 프로파일 저장 가능)
     
     처리 로직:
-    - cusnoS10이 있는 경우:
+    - cusnoN10이 있는 경우:
       1. 세션에 cusno 저장
-      2. Redis에 profile:realtime:{cusnoS10} 저장 (세션과 동일한 TTL)
-      3. MariaDB에서 배치 프로파일 조회 (CUSNO = cusnoS10)
-      4. Redis에 profile:batch:{cusnoS10} 저장 (세션과 동일한 TTL)
-    - cusnoS10이 없는 경우:
+      2. Redis에 profile:realtime:{cusnoN10} 저장 (세션과 동일한 TTL)
+      3. MariaDB에서 배치 프로파일 조회 (CUSNO = cusnoN10)
+      4. Redis에 profile:batch:{cusnoN10} 저장 (세션과 동일한 TTL)
+    - cusnoN10이 없는 경우:
       1. 세션에 cusno 저장하지 않음
       2. Redis에 profile:realtime:{global_session_key} 저장 (세션과 동일한 TTL)
       3. 배치 프로파일 조회하지 않음 (CUSNO 없음)
@@ -618,8 +618,8 @@ async def update_realtime_personal_context(
     service: SessionService = Depends(get_session_service),
 ):
     """실시간 프로파일 업데이트 API"""
-    cusno = request.profile_data.get("cusnoS10")
-    cusno_display = cusno if cusno else "(no cusnoS10)"
+    cusno = request.profile_data.get("cusnoN10")
+    cusno_display = cusno if cusno else "(no cusnoN10)"
     logger.info(f"Updating realtime profile: global_session_key={global_session_key}, cusno={cusno_display}")
 
     # 경로 변수와 요청 body의 global_session_key 일치 확인

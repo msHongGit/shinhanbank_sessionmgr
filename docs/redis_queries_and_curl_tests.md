@@ -245,7 +245,7 @@ curl -sS -X POST "${BASE_URL}/api/v1/sessions/${GLOBAL_SESSION_KEY}/realtime-per
   -d "{
     \"global_session_key\": \"${GLOBAL_SESSION_KEY}\",
     \"profile_data\": {
-      \"cusnoS10\": \"0616001905\",
+      \"cusnoN10\": \"0616001905\",
       \"cusSungNmS20\": \"홍길동\",
       \"hpNoS12\": \"01031286270\",
       \"biryrMmddS6\": \"710115\",

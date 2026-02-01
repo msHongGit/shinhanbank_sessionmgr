@@ -138,8 +138,8 @@ class SessionService:
         3. JWT 토큰 발급
 
         참고: 프로파일은 세션 생성 시점에는 조회하지 않음 (CUSNO 없음)
-        - 실시간 프로파일: 실시간 프로파일 저장 API 호출 시 cusnoS10으로 저장
-        - 배치 프로파일: 실시간 프로파일 저장 API 호출 시 cusnoS10 값을 CUSNO로 사용하여 MariaDB 조회
+        - 실시간 프로파일: 실시간 프로파일 저장 API 호출 시 cusnoN10으로 저장
+        - 배치 프로파일: 실시간 프로파일 저장 API 호출 시 cusnoN10 값을 CUSNO로 사용하여 MariaDB 조회
         """
         # Session Manager가 Global Session Key 생성
         global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
@@ -262,7 +262,7 @@ class SessionService:
             # 세션에 cusno가 있으면 해당 cusno로 프로파일 조회
             batch_profile_data, realtime_profile_data = await self.profile_service.get_batch_and_realtime_profiles(cusno)
         else:
-            # cusno가 없으면: cusnoS10 없이 저장된 경우일 수 있음
+            # cusno가 없으면: cusnoN10 없이 저장된 경우일 수 있음
             # global_session_key로 실시간 프로파일 조회 시도 (배치는 조회 불가)
             redis_client = get_redis_client()
             helper = RedisHelper(redis_client)

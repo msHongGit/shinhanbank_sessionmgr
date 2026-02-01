@@ -64,9 +64,9 @@ app = FastAPI(
 
         **개인화 프로파일**
         - 실시간 프로파일: 실시간 프로파일 업데이트 API로 Redis 저장
-          - cusnoS10이 있으면: 세션에 cusno 저장, Redis에 profile:realtime:{cusno} 저장, 배치 프로파일 조회 및 저장
-          - cusnoS10이 없으면: 세션에 cusno 저장하지 않음, Redis에 profile:realtime:{global_session_key} 저장, 배치 프로파일 조회 안 함
-        - 배치 프로파일: MariaDB에서 조회하여 Redis에 저장 (MariaDB 연결 정보가 있고 cusnoS10이 있을 때만)
+          - cusnoN10이 있으면: 세션에 cusno 저장, Redis에 profile:realtime:{cusno} 저장, 배치 프로파일 조회 및 저장
+          - cusnoN10이 없으면: 세션에 cusno 저장하지 않음, Redis에 profile:realtime:{global_session_key} 저장, 배치 프로파일 조회 안 함
+        - 배치 프로파일: MariaDB에서 조회하여 Redis에 저장 (MariaDB 연결 정보가 있고 cusnoN10이 있을 때만)
         - 세션 조회 시 batch_profile과 realtime_profile을 분리하여 반환
         - 세션 조회 시 세션의 cusno 필드로 프로파일 조회 (cusno가 없으면 global_session_key로 실시간 프로파일만 조회)
 
@@ -86,7 +86,7 @@ app = FastAPI(
         - `DELETE /sessions/{key}` - 세션 종료 (내부 서비스용)
         - `DELETE /sessions` - 세션 종료 (토큰 기반)
         - `POST /sessions/{key}/api-results` - 실시간 API 연동 결과 저장
-        - `POST /sessions/{key}/realtime-personal-context` - 실시간 프로파일 업데이트 (cusnoS10 선택적)
+        - `POST /sessions/{key}/realtime-personal-context` - 실시간 프로파일 업데이트 (cusnoN10 선택적)
         - `GET /sessions/{key}/full` - 세션 전체 정보 조회 (세션 + 턴 목록)
 
         ### 저장소

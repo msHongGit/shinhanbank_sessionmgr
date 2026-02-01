@@ -72,7 +72,7 @@ class ProfileService:
                         segment = str(value)
 
             return CustomerProfile(
-                user_id=realtime_profile.get("cusnoS10", batch_profile.user_id if batch_profile else ""),
+                user_id=realtime_profile.get("cusnoN10", batch_profile.user_id if batch_profile else ""),
                 attributes=attributes,
                 segment=segment,
                 preferences={"source": "realtime"},
@@ -114,7 +114,7 @@ class ProfileService:
 
         처리 흐름:
             1. user_id로 실시간 프로파일 조회 시도
-            2. 실시간 프로파일에서 cusnoS10 추출 (CUSNO)
+            2. 실시간 프로파일에서 cusnoN10 추출 (CUSNO)
             3. 실시간 프로파일이 없으면 user_id를 CUSNO로 사용 (fallback)
             4. CUSNO로 배치/실시간 프로파일 조회
         """
@@ -125,9 +125,9 @@ class ProfileService:
         realtime_profile_temp = await helper.get_realtime_profile(user_id)
         cusno = None
 
-        if realtime_profile_temp and "cusnoS10" in realtime_profile_temp:
-            # 실시간 프로파일에서 cusnoS10 추출
-            cusno = str(realtime_profile_temp["cusnoS10"]).strip()
+        if realtime_profile_temp and "cusnoN10" in realtime_profile_temp:
+            # 실시간 프로파일에서 cusnoN10 추출
+            cusno = str(realtime_profile_temp["cusnoN10"]).strip()
         elif user_id:
             # 실시간 프로파일이 없으면 user_id를 CUSNO로 사용 (fallback)
             cusno = str(user_id).strip()
@@ -143,7 +143,7 @@ class ProfileService:
         """배치 프로파일과 실시간 프로파일을 분리하여 조회
 
         Args:
-            cusno: 고객번호 (CUSNO) - 실시간 프로파일의 cusnoS10 값
+            cusno: 고객번호 (CUSNO) - 실시간 프로파일의 cusnoN10 값
 
         Returns:
             tuple: (batch_profile_data, realtime_profile_data)
@@ -178,12 +178,12 @@ class ProfileService:
             RealtimePersonalContextResponse
 
         처리 흐름:
-        1. 실시간 프로파일에서 cusnoS10 추출 시도 (CUSNO)
-        2. cusnoS10이 있으면:
+        1. 실시간 프로파일에서 cusnoN10 추출 시도 (CUSNO)
+        2. cusnoN10이 있으면:
            - 세션에 cusno 매핑 저장
            - Redis에 실시간 프로파일 저장 (CUSNO를 키로 사용)
            - MariaDB에서 배치 프로파일 조회 및 Redis에 저장
-        3. cusnoS10이 없으면:
+        3. cusnoN10이 없으면:
            - 세션에 cusno 저장하지 않음
            - Redis에 실시간 프로파일 저장 (global_session_key를 키로 사용)
            - 배치 프로파일 조회하지 않음 (CUSNO 없음)
@@ -193,9 +193,38 @@ class ProfileService:
         if not session:
             raise SessionNotFoundError(global_session_key)
 
-        # 2. 실시간 프로파일에서 CUSNO 추출 시도 (cusnoS10 컬럼, 선택적)
+        # 2. 실시간 프로파일에서 CUSNO 추출 시도 (cusnoN10 컬럼, 선택적)
         cusno = None
-        cusno_raw = request.profile_data.get("cusnoS10")
+
+        # 디버깅: 실제 데이터 구조 확인
+        logger.info(f"profile_data keys: {list(request.profile_data.keys())}")
+        logger.info(f"responseData type: {type(request.profile_data.get('responseData'))}")
+        logger.info(f"responseData value: {request.profile_data.get('responseData')}")
+
+        cusno_raw = request.profile_data.get("cusnoN10")
+        logger.info(f"cusnoN10 from top level: {cusno_raw}")
+        
+        if not cusno_raw:
+            # responseData 내부도 확인
+            response_data = request.profile_data.get("responseData")
+
+            # 문자열이면 JSON 파싱
+            if isinstance(response_data, str):
+                import json
+                try:
+                    response_data = json.loads(response_data)
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(
+                        "Failed to parse responseData as JSON: %s, responseData=%s",
+                        e,
+                        response_data,
+                    )
+                    response_data = None
+
+            # dict이면 여기서 cusnoN10 추출
+            if isinstance(response_data, dict):
+                cusno_raw = response_data.get("cusnoN10")
+
         if cusno_raw:
             cusno = str(cusno_raw).strip()
             if not cusno:
@@ -205,7 +234,7 @@ class ProfileService:
         helper = RedisHelper(redis_client)
 
         if cusno:
-            # cusnoS10이 있는 경우: 정상적인 프로파일 저장 플로우
+            # cusnoN10이 있는 경우: 정상적인 프로파일 저장 플로우
             # 3. 세션에 cusno 매핑 저장 (세션 정보와 cusno 연결)
             await self.session_repo.update(global_session_key, cusno=cusno)
 
@@ -219,7 +248,7 @@ class ProfileService:
                     # Redis에 배치 프로파일 저장 (CUSNO를 키로 사용)
                     await helper.set_batch_profile(cusno, batch_profile_data)
         else:
-            # cusnoS10이 없는 경우: 실시간 프로파일만 저장 (세션 키 기반)
+            # cusnoN10이 없는 경우: 실시간 프로파일만 저장 (세션 키 기반)
             # 세션에 cusno 저장하지 않음
             # Redis에 실시간 프로파일 저장 (global_session_key를 키로 사용)
             await helper.set_realtime_profile(global_session_key, request.profile_data)

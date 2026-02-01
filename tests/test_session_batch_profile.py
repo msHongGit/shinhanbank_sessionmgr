@@ -27,7 +27,7 @@ class TestBatchProfileIntegration:
 
         # 2. 실시간 프로파일 업데이트 (이때 배치 프로파일 조회 및 Redis 저장)
         profile_data = {
-            "cusnoS10": "0616001905",  # CUSNO로 사용됨
+            "cusnoN10": "0616001905",  # CUSNO로 사용됨
             "cusSungNmS20": "홍길동",
             "hpNoS12": "01031286270",
         }
@@ -62,7 +62,7 @@ class TestBatchProfileIntegration:
         assert "realtime_profile" in session_data
         realtime_profile = session_data["realtime_profile"]
         assert realtime_profile is not None
-        assert realtime_profile["cusnoS10"] == "0616001905"
+        assert realtime_profile["cusnoN10"] == "0616001905"
         assert realtime_profile["cusSungNmS20"] == "홍길동"
 
         # 6. 통합 프로파일은 제거되었으므로 None이어야 함
@@ -89,7 +89,7 @@ class TestBatchProfileIntegration:
 
         # 2. 실시간 프로파일 업데이트 (이때 실제 MariaDB에서 배치 프로파일 조회)
         profile_data = {
-            "cusnoS10": "0616001905",  # CUSNO로 사용됨
+            "cusnoN10": "0616001905",  # CUSNO로 사용됨
             "cusSungNmS20": "홍길동",
         }
         update_req = {
@@ -125,4 +125,4 @@ class TestBatchProfileIntegration:
         assert "realtime_profile" in session_data
         realtime_profile = session_data["realtime_profile"]
         assert realtime_profile is not None
-        assert realtime_profile["cusnoS10"] == "0616001905"
+        assert realtime_profile["cusnoN10"] == "0616001905"

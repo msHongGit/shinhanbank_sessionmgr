@@ -220,7 +220,7 @@ class SessionCreateRequest(BaseModel):
     channel 은 EventType / EventChannel 정보를 담는 딕셔너리로 사용한다.
 
     참고: user_id는 세션 생성 시 임시값으로 저장되며,
-    실제 고객번호(cusno)는 실시간 프로파일 저장 시 cusnoS10에서 추출됩니다.
+    실제 고객번호(cusno)는 실시간 프로파일 저장 시 cusnoN10에서 추출됩니다.
     """
 
     user_id: str | None = Field(None, alias="userId", description="사용자 ID (선택)")

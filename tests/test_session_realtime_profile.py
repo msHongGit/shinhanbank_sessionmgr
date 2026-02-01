@@ -22,7 +22,7 @@ class TestRealtimePersonalContext:
 
         # 2. 실시간 프로파일 업데이트
         profile_data = {
-            "cusnoS10": "0616001905",
+            "cusnoN10": "0616001905",
             "cusSungNmS20": "홍길동",
             "hpNoS12": "01031286270",
             "biryrMmddS6": "710115",
@@ -60,7 +60,7 @@ class TestRealtimePersonalContext:
         assert "realtime_profile" in session_data
         realtime_profile = session_data["realtime_profile"]
         assert realtime_profile is not None
-        assert realtime_profile["cusnoS10"] == "0616001905"
+        assert realtime_profile["cusnoN10"] == "0616001905"
         assert realtime_profile["cusSungNmS20"] == "홍길동"
         assert realtime_profile["membGdS2"] == "02"
 
@@ -76,7 +76,7 @@ class TestRealtimePersonalContext:
     def test_update_realtime_personal_context_session_not_found(self, client, ma_headers):
         """존재하지 않는 세션에 대한 실시간 프로파일 업데이트 테스트"""
         profile_data = {
-            "cusnoS10": "0616001905",
+            "cusnoN10": "0616001905",
             "cusSungNmS20": "홍길동",
         }
         update_req = {
@@ -102,7 +102,7 @@ class TestRealtimePersonalContext:
 
         # 2. 경로 변수와 다른 global_session_key를 body에 포함하여 요청
         profile_data = {
-            "cusnoS10": "0616001905",
+            "cusnoN10": "0616001905",
             "cusSungNmS20": "홍길동",
         }
         update_req = {

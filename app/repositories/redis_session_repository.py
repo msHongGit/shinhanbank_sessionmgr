@@ -122,7 +122,7 @@ class RedisSessionRepository:
             if await redis_client.exists(batch_key):
                 await redis_client.expire(batch_key, SESSION_CACHE_TTL)
         else:
-            # global_session_key 기반 프로파일 TTL 연장 (cusnoS10 없을 경우)
+            # global_session_key 기반 프로파일 TTL 연장 (cusnoN10 없을 경우)
             realtime_key = f"profile:realtime:{global_session_key}"
             if await redis_client.exists(realtime_key):
                 await redis_client.expire(realtime_key, SESSION_CACHE_TTL)

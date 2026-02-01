@@ -243,7 +243,7 @@ GET /api/v1/sessions/gsess_20260108_abcd1234?agent_type=task&agent_id=transfer_a
     }
   },
   "realtime_profile": {
-    "cusnoS10": "0616001905",
+    "cusnoN10": "0616001905",
     "cusSungNmS20": "홍길동",
     "hpNoS12": "01031286270",
     ...
@@ -743,7 +743,7 @@ GET /api/v1/sessions/{global_session_key}/full
 - 필드:
   - `global_session_key`: 세션 키
   - `user_id`: 사용자 ID (세션 생성 시 전달한 임시값)
-  - `cusno`: 고객번호 (실시간 프로파일 저장 시 cusnoS10에서 추출하여 저장)
+  - `cusno`: 고객번호 (실시간 프로파일 저장 시 cusnoN10에서 추출하여 저장)
   - `channel`: 채널 정보 (JSON 문자열)
   - `conversation_id`: 대화 ID
   - `session_state`: 세션 상태
@@ -787,14 +787,14 @@ GET /api/v1/sessions/{global_session_key}/full
 **프로파일 저장소**
 
 - 실시간 프로파일:
-  - 키: `profile:realtime:{cusno}` (cusno는 실시간 프로파일의 cusnoS10 값)
+  - 키: `profile:realtime:{cusno}` (cusno는 실시간 프로파일의 cusnoN10 값)
   - 타입: String (JSON 문자열)
   - TTL: 없음 (영구 저장)
   - 저장 시점: 실시간 프로파일 업데이트 API 호출 시
-  - 저장 흐름: 실시간 프로파일에서 cusnoS10 추출 → 세션에 cusno 필드 저장 → Redis에 프로파일 저장
+  - 저장 흐름: 실시간 프로파일에서 cusnoN10 추출 → 세션에 cusno 필드 저장 → Redis에 프로파일 저장
 
 - 배치 프로파일:
-  - 키: `profile:batch:{cusno}` (cusno는 실시간 프로파일의 cusnoS10 값)
+  - 키: `profile:batch:{cusno}` (cusno는 실시간 프로파일의 cusnoN10 값)
   - 타입: String (JSON 문자열)
   - TTL: 없음 (영구 저장)
   - 저장 시점: 실시간 프로파일 업데이트 API 호출 시 (MariaDB에서 조회하여 저장)

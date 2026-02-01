@@ -26,7 +26,7 @@
 - **실시간 프로파일**: 실시간 프로파일 업데이트 API로 Redis에 저장
 - **배치 프로파일**: MariaDB에서 조회하여 Redis에 저장 (MariaDB 연결 정보가 있을 때만)
 - **조회 시 반환**: GET /sessions/{key} 응답에 batch_profile과 realtime_profile을 분리하여 반환
-- **세션 매핑**: 실시간 프로파일 저장 시 세션에 cusno 필드 저장 (cusnoS10 추출)
+- **세션 매핑**: 실시간 프로파일 저장 시 세션에 cusno 필드 저장 (cusnoN10 추출)
 - **프로파일 조회**: 세션 조회 시 세션의 cusno 필드로 프로파일 조회
 
 ### SOL API 연동 로그
@@ -172,8 +172,8 @@ Session Manager는 JWT 토큰 기반 인증을 사용합니다.
   - `session:{global_session_key}` - 세션 해시 (Agent 매핑, cusno 포함, TTL: 300초)
   - `turns:{global_session_key}` - 턴 목록 (리스트, TTL: 세션과 동일)
   - `jti:{jti}` - JWT ID → global_session_key 매핑 (TTL: 300초)
-  - `profile:realtime:{cusno}` - 실시간 프로파일 (cusnoS10 추출, TTL: 세션과 동일)
-  - `profile:realtime:{global_session_key}` - 실시간 프로파일 (cusnoS10 없을 경우, TTL: 세션과 동일)
+  - `profile:realtime:{cusno}` - 실시간 프로파일 (cusnoN10 추출, TTL: 세션과 동일)
+  - `profile:realtime:{global_session_key}` - 실시간 프로파일 (cusnoN10 없을 경우, TTL: 세션과 동일)
   - `profile:batch:{cusno}` - 배치 프로파일 (CUSNO 기반, TTL: 세션과 동일)
 
 **MariaDB** (배치 프로파일 조회용, 선택적)
@@ -353,7 +353,7 @@ curl -X DELETE "http://localhost:5000/api/v1/sessions" \
 - MariaDB 선택적: 배치 프로파일 조회용 (연결 정보가 없어도 서비스 정상 동작)
 - TTL 기반 관리: 세션 생존 시간 자동 관리 (기본 300초)
 - 프로파일 분리: batch_profile과 realtime_profile 분리 저장 및 반환
-- cusno 기반 매핑: 실시간 프로파일의 cusnoS10을 추출하여 세션에 cusno 저장, 프로파일 조회 시 사용
+- cusno 기반 매핑: 실시간 프로파일의 cusnoN10을 추출하여 세션에 cusno 저장, 프로파일 조회 시 사용
 
 ### JWT 토큰 기반 인증 추가
 - API Key 인증 제거: `app/core/auth.py` 삭제, 모든 API Key 관련 설정 제거

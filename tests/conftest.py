@@ -162,7 +162,7 @@ def sample_agent_session_key():
 def sample_customer_profile():
     """샘플 고객 프로파일"""
     return CustomerProfile(
-        cusnoS10="0616001905",
+        cusnoN10="0616001905",
         attributes=[ProfileAttribute(key="segment", value="VIP", source_system="crm")],
         segment="VIP",
         preferences={"language": "ko"},
