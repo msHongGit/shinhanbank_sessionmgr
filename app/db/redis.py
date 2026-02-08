@@ -4,11 +4,19 @@ v4.0: 모든 연동 Async 방식
 """
 
 import json
+from decimal import Decimal
 from typing import Any
 
 import redis.asyncio as redis
 
 _redis_client: redis.Redis | None = None
+
+
+def _json_serializer(obj: Any) -> Any:
+    """JSON 직렬화 헬퍼 (Decimal 타입 지원)"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 async def init_redis() -> None:
@@ -191,8 +199,7 @@ class RedisHelper:
         from app.config import SESSION_CACHE_TTL
 
         key = f"profile:realtime:{user_id}"
-        await self.client.set(key, json.dumps(profile_data, ensure_ascii=False))
-        # 세션과 동일한 TTL 설정
+        await self.client.set(key, json.dumps(profile_data, ensure_ascii=False, default=_json_serializer))
         await self.client.expire(key, ttl or SESSION_CACHE_TTL)
 
     # ============ 배치 프로파일 ============
@@ -233,6 +240,5 @@ class RedisHelper:
         from app.config import SESSION_CACHE_TTL
 
         key = f"profile:batch:{user_id}"
-        await self.client.set(key, json.dumps(profile_data, ensure_ascii=False))
-        # 세션과 동일한 TTL 설정
+        await self.client.set(key, json.dumps(profile_data, ensure_ascii=False, default=_json_serializer))
         await self.client.expire(key, ttl or SESSION_CACHE_TTL)

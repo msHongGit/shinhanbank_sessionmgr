@@ -196,39 +196,14 @@ class ProfileService:
         # 2. 실시간 프로파일에서 CUSNO 추출 시도 (cusnoN10 컬럼, 선택적)
         cusno = None
 
-        # 디버깅: 실제 데이터 구조 확인
-        logger.info(f"profile_data keys: {list(request.profile_data.keys())}")
-        logger.info(f"responseData type: {type(request.profile_data.get('responseData'))}")
-        logger.info(f"responseData value: {request.profile_data.get('responseData')}")
+        profile_data = request.profile_data
+        cusno_raw = profile_data.get("cusnoN10")
 
-        cusno_raw = request.profile_data.get("cusnoN10")
-        logger.info(f"cusnoN10 from top level: {cusno_raw}")
-        
         if not cusno_raw:
-            # responseData 내부도 확인
-            response_data = request.profile_data.get("responseData")
-
-            # 문자열이면 JSON 파싱
-            if isinstance(response_data, str):
-                import json
-                try:
-                    response_data = json.loads(response_data)
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(
-                        "Failed to parse responseData as JSON: %s, responseData=%s",
-                        e,
-                        response_data,
-                    )
-                    response_data = None
-
-            # dict이면 여기서 cusnoN10 추출
-            if isinstance(response_data, dict):
-                cusno_raw = response_data.get("cusnoN10")
-
+            reponse_data = profile_data.get("responseData", {})
+            cusno_raw = reponse_data.get("cusnoN10")
         if cusno_raw:
-            cusno = str(cusno_raw).strip()
-            if not cusno:
-                cusno = None
+            cusno = str(cusno_raw).strip() or None
 
         redis_client = get_redis_client()
         helper = RedisHelper(redis_client)

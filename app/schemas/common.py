@@ -273,10 +273,11 @@ class SessionResolveResponse(BaseModel):
     task_queue_status: TaskQueueStatus = Field(..., description="Task Queue 상태")
     subagent_status: SubAgentStatus = Field(..., description="SubAgent 상태")
     last_event: LastEvent | None = Field(None, description="마지막 이벤트")
-    customer_profile: CustomerProfile | None = Field(
-        None,
-        description="통합 고객 프로파일 (배치 + 실시간 통합, 실시간 우선)",
-    )
+    cusno: str | None = Field(None, description="고객번호")
+    # customer_profile: CustomerProfile | None = Field(
+    #     None,
+    #     description="통합 고객 프로파일 (배치 + 실시간 통합, 실시간 우선)",
+    # )
     batch_profile: dict[str, Any] | None = Field(
         None,
         description="배치 프로파일 스냅샷 (일별+월별)",
@@ -554,7 +555,7 @@ class TokenRefreshResponse(BaseModel):
 class RealtimePersonalContextRequest(BaseModel):
     """실시간 프로파일 업데이트 요청"""
 
-    global_session_key: str = Field(..., description="Global 세션 키")
+    # global_session_key: str = Field(..., description="Global 세션 키")
     profile_data: dict[str, Any] = Field(..., description="실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)")
 
 

@@ -155,8 +155,13 @@ class SessionService:
         # user_id가 없으면 빈 문자열로 저장 (선택적 필드)
         user_id = request.user_id or ""
 
+        # JWT 토큰 발급 (AuthService 위임)
+        tokens = await self.auth_service.create_tokens(user_id, global_session_key)
+
         # Redis 즉시 저장 (세션 스냅샷)
         # 프로파일은 세션에 저장하지 않음 (Redis에 별도 저장)
+        # 생성한 jti 세션 hash에 함께 저장
+
         await self.session_repo.create(
             global_session_key=global_session_key,
             user_id=user_id,
@@ -165,12 +170,9 @@ class SessionService:
             session_state=SessionState.START.value,
             task_queue_status=TaskQueueStatus.NULL.value,
             subagent_status=SubAgentStatus.UNDEFINED.value,
-            customer_profile=None,  # 프로파일은 세션에 저장하지 않음
+            # customer_profile=None,
             start_type=start_type_value,
         )
-
-        # JWT 토큰 발급 (AuthService 위임)
-        tokens = await self.auth_service.create_tokens(user_id, global_session_key)
 
         # 응답 반환 (토큰 포함)
         return SessionCreateResponse(
@@ -278,7 +280,8 @@ class SessionService:
             task_queue_status=task_queue_status,
             subagent_status=SubAgentStatus(session.get("subagent_status", "undefined")),
             last_event=last_event,
-            customer_profile=None,  # 통합 프로파일 제거
+            cusno=cusno,
+            # customer_profile=None,  # 통합 프로파일 제거
             batch_profile=batch_profile_data,  # 배치 프로파일 (일별+월별)
             realtime_profile=realtime_profile_data,  # 실시간 프로파일
             active_task=active_task,

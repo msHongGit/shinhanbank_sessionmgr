@@ -7,7 +7,8 @@ import os
 from datetime import UTC, datetime
 
 import pytest
-from fastapi.testclient import TestClient
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 
 # 모든 환경에서 REDIS_URL 필수
 # - 로컬: .env 파일에 Azure Redis 설정
@@ -19,38 +20,35 @@ from app.services.session_service import SessionService
 
 
 @pytest.fixture(autouse=True)
-def _reset_redis_client():
-    """각 테스트마다 Redis 클라이언트 초기화 (이벤트 루프 충돌 방지)
-
-    TestClient가 각 테스트마다 새로운 이벤트 루프를 생성하고 닫기 때문에,
-    전역 Redis 클라이언트를 재사용하면 "Event loop is closed" 에러가 발생합니다.
-    따라서 테스트 환경에서는 매번 새로 생성하되, Redis 연결 풀은 내부적으로 재사용됩니다.
-    """
+def _reset_clients():
+    """각 테스트마다 Redis/MariaDB 클라이언트 초기화 (이벤트 루프 충돌 방지)"""
+    import app.db.mariadb as mariadb_module
     import app.db.redis as redis_module
 
-    # Redis 클라이언트를 None으로 초기화 (매 테스트마다 새로 생성되도록)
+    # Redis 클라이언트를 None으로 초기화
     redis_module._redis_client = None
+
+    # MariaDB 엔진 초기화
+    mariadb_module._engine = None
+    mariadb_module._AsyncSessionLocal = None
 
     yield
 
-    # Cleanup은 생략 (테스트 환경에서는 Redis 클라이언트를 명시적으로 닫지 않음)
-    # TestClient가 사용하는 이벤트 루프와 충돌을 피하기 위함
+    # Cleanup은 테스트 종료 후 자동으로 처리됨
 
 
-@pytest.fixture
-def client():
-    """FastAPI TestClient using real Redis and real MariaDB."""
+@pytest_asyncio.fixture
+async def client():
+    """AsyncClient using real Redis and real MariaDB."""
     from app.api.v1.sessions import get_session_service
 
-    # 실제 MariaDB Batch Profile Repository 사용 (설정되어 있으면)
+    # 실제 MariaDB Batch Profile Repository 사용
     profile_repo = None
     try:
         from app.repositories.mariadb_batch_profile_repository import MariaDBBatchProfileRepository
 
         profile_repo = MariaDBBatchProfileRepository()
     except Exception as e:
-        # MariaDB 연결 정보가 없으면 None으로 두고 테스트 진행
-        # (일부 테스트는 MariaDB 없이도 실행 가능)
         import logging
 
         logging.getLogger(__name__).debug(f"MariaDB connection not available: {e}")
@@ -62,8 +60,8 @@ def client():
 
     app.dependency_overrides[get_session_service] = override_session_service
 
-    client = TestClient(app)
-    yield client
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as ac:
+        yield ac
 
     # Cleanup
     app.dependency_overrides.clear()
@@ -102,37 +100,37 @@ def jwt_headers(access_token):
     return {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
 
 
-@pytest.fixture
-def access_token(client, agw_headers):
+@pytest_asyncio.fixture
+async def access_token(client, agw_headers):
     """Access Token 생성 (세션 생성 후 토큰 추출)"""
     request_data = {
         "userId": "0616001905",
     }
-    response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
+    response = await client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
     assert response.status_code == 201
     data = response.json()
     return data["access_token"]
 
 
-@pytest.fixture
-def refresh_token(client, agw_headers):
+@pytest_asyncio.fixture
+async def refresh_token(client, agw_headers):
     """Refresh Token 생성 (세션 생성 후 토큰 추출)"""
     request_data = {
         "userId": "0616001905",
     }
-    response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
+    response = await client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
     assert response.status_code == 201
     data = response.json()
     return data["refresh_token"]
 
 
-@pytest.fixture
-def session_with_tokens(client, agw_headers):
+@pytest_asyncio.fixture
+async def session_with_tokens(client, agw_headers):
     """세션 생성 및 토큰 정보 반환"""
     request_data = {
         "userId": "0616001905",
     }
-    response = client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
+    response = await client.post("/api/v1/sessions", json=request_data, headers=agw_headers)
     assert response.status_code == 201
     data = response.json()
     return {

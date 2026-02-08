@@ -244,6 +244,17 @@ class AuthService:
 
         await self.session_repo.update(global_session_key, **updates)
 
+        # 3. jti 매핑 삭제로 토큰 즉시 무효화
+        try:
+            payload = verify_token(token, JWT_SECRET_KEY)
+            jti = payload.get("jti")
+        except ValueError:
+            jti = None
+
+        if jti:
+            redis_client = get_redis_client()
+            await redis_client.delete(f"jti:{jti}")
+
         # conversation_id 없이 세션 기준 아카이브 ID 생성
         archived_id = f"arch_{global_session_key}"
 

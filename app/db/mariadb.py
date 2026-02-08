@@ -1,5 +1,7 @@
 """MariaDB 연결 및 연결 풀 관리 (Async)"""
 
+from contextlib import asynccontextmanager
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import (
@@ -26,14 +28,26 @@ def init_mariadb():
             pool_size=MARIADB_POOL_SIZE,
             max_overflow=MARIADB_MAX_OVERFLOW,
             pool_pre_ping=True,
+            pool_recycle=3600,
         )
-        _AsyncSessionLocal = async_sessionmaker(bind=_engine, class_=AsyncSession)
+        _AsyncSessionLocal = async_sessionmaker(
+            bind=_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autoflush=False,
+            autocommit=False,
+        )
 
 
-async def get_mariadb_session() -> AsyncSession:
-    """MariaDB 세션 반환 (Async)"""
+@asynccontextmanager
+async def get_mariadb_session():
+    """MariaDB 세션 반환 (Async Context Manager)"""
     if not _AsyncSessionLocal:
         init_mariadb()
     if not _AsyncSessionLocal:
         raise RuntimeError("MariaDB connection not initialized")
-    return _AsyncSessionLocal()
+    session = _AsyncSessionLocal()
+    try:
+        yield session
+    finally:
+        await session.close()

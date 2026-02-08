@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
-from app.core.jwt_auth import extract_token_from_request
+from app.core.jwt_auth import extract_token_from_request, get_global_session_key_from_token
 from app.schemas.common import (
     AgentType,
     RealtimePersonalContextRequest,
@@ -579,7 +579,7 @@ async def get_session_full(
 
 
 @router.post(
-    "/{global_session_key}/realtime-personal-context",
+    "/realtime-personal-context",
     response_model=RealtimePersonalContextResponse,
     status_code=200,
     summary="실시간 프로파일 업데이트",
@@ -613,24 +613,56 @@ async def get_session_full(
     """,
 )
 async def update_realtime_personal_context(
-    global_session_key: str,
-    request: RealtimePersonalContextRequest,
+    request: Request,
+    body: RealtimePersonalContextRequest,
     service: SessionService = Depends(get_session_service),
 ):
     """실시간 프로파일 업데이트 API"""
-    cusno = request.profile_data.get("cusnoN10")
+    token = extract_token_from_request(request)
+    if not token:
+        logger.warning("Realtime profile update request without access token")
+        raise HTTPException(status_code=401, detail="Access token required")
+
+    # 토큰에서 global_session_key 추출
+    global_session_key = await get_global_session_key_from_token(token)
+
+    # body에 global_session_key가 전달된 경우 토큰에서 추출한 값과 일치하는지 검증
+    # if body.global_session_key and body.global_session_key != global_session_key:
+    #     logger.warning(
+    #         "Realtime profile key mismatch: token=%s, body=%s",
+    #         global_session_key,
+    #         body.global_session_key,
+    #     )
+    #     raise HTTPException(status_code=400, detail="global_session_key mismatch")
+
+    profile_data = body.profile_data
+    response_data = profile_data.get("responseData") or {}
+    cusno_raw = response_data.get("cusnoN10")
+
+    cusno = str(cusno_raw).strip() if cusno_raw else None
+    # if not cusno:
+    #     cusno = None
+
     cusno_display = cusno if cusno else "(no cusnoN10)"
     logger.info(f"Updating realtime profile: global_session_key={global_session_key}, cusno={cusno_display}")
 
-    # 경로 변수와 요청 body의 global_session_key 일치 확인
-    if request.global_session_key != global_session_key:
-        logger.warning(f"Realtime profile key mismatch: path={global_session_key}, body={request.global_session_key}")
-        raise HTTPException(status_code=400, detail="global_session_key mismatch")
-
     try:
-        result = await service.profile_service.update_realtime_personal_context(global_session_key, request)
-        logger.info(f"Realtime profile updated: global_session_key={global_session_key}, cusno={cusno}")
+        result = await service.profile_service.update_realtime_personal_context(
+            global_session_key,
+            body,
+        )
+        logger.info(
+            "Realtime profile updated: global_session_key=%s, cusno=%s",
+            global_session_key,
+            cusno,
+        )
         return result
     except Exception as e:
-        logger.error(f"Failed to update realtime profile: global_session_key={global_session_key}, cusno={cusno}, error={e}", exc_info=True)
+        logger.error(
+            "Failed to update realtime profile: global_session_key=%s, cusno=%s, error=%s",
+            global_session_key,
+            cusno,
+            e,
+            exc_info=True,
+        )
         raise

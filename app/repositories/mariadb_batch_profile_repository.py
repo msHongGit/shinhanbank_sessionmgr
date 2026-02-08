@@ -30,8 +30,7 @@ class MariaDBBatchProfileRepository:
             }
         """
         try:
-            session = await get_mariadb_session()
-            try:
+            async with get_mariadb_session() as session:
                 # 일별 테이블 조회 (최신 데이터)
                 daily_query = text("""
                     SELECT * FROM IFC_CUS_DD_SMRY_TOT
@@ -73,11 +72,6 @@ class MariaDBBatchProfileRepository:
                     batch_data["monthly"] = monthly_dict
 
                 return batch_data if batch_data else None
-            except Exception as e:
-                logger.error(f"Failed to fetch batch profile for user {user_id}: {e}")
-                return None
-            finally:
-                await session.close()
         except Exception as e:
-            logger.error(f"Failed to get MariaDB session: {e}")
+            logger.error(f"Failed to fetch batch profile for user {user_id}: {e}")
             return None
