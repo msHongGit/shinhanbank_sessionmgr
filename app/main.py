@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.api.v1.sessions import router as sessions_router
 from app.config import ALLOWED_ORIGINS, API_PREFIX, DEBUG
 from app.core.exceptions import SessionManagerError
+from app.logger_config import setup_es_logger
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -19,19 +20,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan - Redis 및 MariaDB 연결 초기화"""
+    """Application lifespan - Redis/ES 로그 초기화"""
     # Startup
     print("🚀 Session Manager starting...")
+
+    # ES 전용 로거 초기화 (실패해도 서비스는 계속 동작하도록 방어)
+    try:
+        setup_es_logger()
+        logging.getLogger(__name__).info("ES logger initialized")
+    except Exception as exc:  # pragma: no cover - 환경에 따라 다를 수 있음
+        logging.getLogger(__name__).warning("Failed to setup ES logger: %s", exc, exc_info=True)
 
     # Redis 비동기 초기화
     from app.db.redis import init_redis
 
     await init_redis()
-
-    # MariaDB 비동기 초기화 (선택적, MARIADB_HOST가 설정되어 있을 때만)
-    from app.db.mariadb import init_mariadb
-
-    init_mariadb()
 
     print("✅ Session Manager started")
 
@@ -66,7 +69,7 @@ app = FastAPI(
         - 실시간 프로파일: 실시간 프로파일 업데이트 API로 Redis 저장
           - cusnoN10이 있으면: 세션에 cusno 저장, Redis에 profile:realtime:{cusno} 저장, 배치 프로파일 조회 및 저장
           - cusnoN10이 없으면: 세션에 cusno 저장하지 않음, Redis에 profile:realtime:{global_session_key} 저장, 배치 프로파일 조회 안 함
-        - 배치 프로파일: MariaDB에서 조회하여 Redis에 저장 (MariaDB 연결 정보가 있고 cusnoN10이 있을 때만)
+        - 배치 프로파일: MinIO에서 조회하여 Redis에 저장 (MinIO 설정이 있고 cusnoN10이 있을 때만)
         - 세션 조회 시 batch_profile과 realtime_profile을 분리하여 반환
         - 세션 조회 시 세션의 cusno 필드로 프로파일 조회 (cusno가 없으면 global_session_key로 실시간 프로파일만 조회)
 
@@ -91,17 +94,16 @@ app = FastAPI(
 
         ### 저장소
 
-        - **Redis**: 세션/턴 메타데이터 및 프로파일 저장
-          - 세션: 기본 TTL 300초 (5분)
-          - 턴(Turns): 세션과 동일한 TTL
-          - 프로파일: 세션과 동일한 TTL (세션 만료 시 함께 삭제)
-          - 키 구조: `session:{global_session_key}`, `profile:realtime:{cusno|global_session_key}`, `profile:batch:{cusno}`
-        - **MariaDB** (선택적): 배치 프로파일 조회용 (IFC_CUS_DD_SMRY_TOT, IFC_CUS_MMBY_SMRY_TOT)
-          - MariaDB 연결 정보가 없어도 서비스 정상 동작 (배치 프로파일만 None 반환)
+                - **Redis**: 세션/턴 메타데이터 및 프로파일 저장
+                    - 세션: 기본 TTL 300초 (5분)
+                    - 턴(Turns): 세션과 동일한 TTL
+                    - 프로파일: 세션과 동일한 TTL (세션 만료 시 함께 삭제)
+                    - 키 구조: `session:{global_session_key}`, `profile:realtime:{cusno|global_session_key}`, `profile:batch:{cusno}`
+                - **MinIO** (선택적): 배치 프로파일 조회용 (일/월 배치 프로파일)
 
         ### 환경
 
-        - 로컬/Dev/운영: Redis 기반 (필수), MariaDB (선택적)
+        - 로컬/Dev/운영: Redis 기반 (필수), MinIO (선택적)
         - 환경변수 기반 설정, JWT 토큰 기반 인증
         """
     ),

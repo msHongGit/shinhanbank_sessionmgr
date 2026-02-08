@@ -33,11 +33,15 @@ JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
 JWT_ACCESS_TOKEN_EXPIRE_SECONDS: int = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_SECONDS", "300"))  # 5분 = 300초
 JWT_REFRESH_TOKEN_EXPIRE_SECONDS: int = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_SECONDS", "330"))  # 5분 30초
 
-# === MariaDB Configuration ===
-MARIADB_HOST: str = os.getenv("MARIADB_HOST", "")
-MARIADB_PORT: int = int(os.getenv("MARIADB_PORT", "3306"))
-MARIADB_USER: str = os.getenv("MARIADB_USER", "")
-MARIADB_PASSWORD: str = os.getenv("MARIADB_PASSWORD", "")
-MARIADB_DATABASE: str = os.getenv("MARIADB_DATABASE", "")
-MARIADB_POOL_SIZE: int = int(os.getenv("MARIADB_POOL_SIZE", "10"))
-MARIADB_MAX_OVERFLOW: int = int(os.getenv("MARIADB_MAX_OVERFLOW", "20"))
+# === ES Log Configuration (optional) ===
+# ES_LOG_PATH는 ES 전용 로그(eslog_*.log)를 남길 디렉터리 경로입니다.
+# logger_config.setup_es_logger() 에서 직접 환경변수를 읽어 사용하지만,
+# 설정을 한 곳에서 확인할 수 있도록 여기에서도 상수로 노출합니다.
+ES_LOG_PATH: str = os.getenv("ES_LOG_PATH", "eslogs")
+
+# === MinIO Configuration ===
+MINIO_ENDPOINT: str = os.getenv("MINIO_ENDPOINT", "")
+MINIO_ACCESS_KEY: str | None = os.getenv("MINIO_ACCESS_KEY")
+MINIO_SECRET_KEY: str | None = os.getenv("MINIO_SECRET_KEY")
+MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "shinhanobj")
+

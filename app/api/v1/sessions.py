@@ -31,6 +31,9 @@ from app.schemas.common import (
 )
 from app.services.session_service import SessionService
 
+
+from app.repositories.minio_batch_profile_repository import MinioBatchProfileRepository
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
@@ -41,7 +44,8 @@ router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
 def get_session_service() -> SessionService:
     """SessionService 의존성"""
-    return SessionService()
+    profile_repo = MinioBatchProfileRepository()
+    return SessionService(profile_repo=profile_repo)
 
 
 # ============ 세션 생성 ============

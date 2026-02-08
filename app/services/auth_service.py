@@ -19,6 +19,7 @@ from app.schemas.common import (
     SessionVerifyResponse,
     TokenRefreshResponse,
 )
+from app.logger_config import LoggerExtraData
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +258,22 @@ class AuthService:
 
         # conversation_id 없이 세션 기준 아카이브 ID 생성
         archived_id = f"arch_{global_session_key}"
+
+        # ES 로그: 세션 종료 (토큰 기반)
+        logger.eslog(
+            LoggerExtraData(
+                logType="SESSION_CLOSE",
+                sessionId=global_session_key,
+                turnId="-",
+                agentId="-",
+                transactionId=jti or "-",
+                payload={
+                    "closeReason": close_reason or "",
+                    "closedAt": now.isoformat(),
+                    "byToken": True,
+                },
+            )
+        )
 
         return SessionCloseResponse(
             status="success",

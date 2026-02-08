@@ -22,6 +22,7 @@ from app.db.redis import RedisHelper, get_redis_client
 from app.repositories import (
     RedisSessionRepository,
 )
+from app.logger_config import LoggerExtraData
 from app.schemas.common import (
     AgentType,
     ChannelInfo,
@@ -174,6 +175,23 @@ class SessionService:
             start_type=start_type_value,
         )
 
+        # ES 로그: 세션 생성
+        logger.eslog(
+            LoggerExtraData(
+                logType="SESSION_CREATE",
+                sessionId=global_session_key,
+                turnId="-",
+                agentId="-",
+                transactionId="-",
+                payload={
+                    "userId": user_id,
+                    "channel": channel_value,
+                    "startType": start_type_value,
+                    "createdAt": datetime.now(UTC).isoformat(),
+                },
+            )
+        )
+
         # 응답 반환 (토큰 포함)
         return SessionCreateResponse(
             global_session_key=global_session_key,
@@ -270,6 +288,23 @@ class SessionService:
             helper = RedisHelper(redis_client)
             realtime_profile_data = await helper.get_realtime_profile(request.global_session_key)
             batch_profile_data = None  # 배치 프로파일은 CUSNO 없이 조회 불가
+
+        # ES 로그: 세션 조회
+        logger.eslog(
+            LoggerExtraData(
+                logType="SESSION_RESOLVE",
+                sessionId=request.global_session_key,
+                turnId="-",
+                agentId=request.agent_id or "-",
+                transactionId="-",
+                payload={
+                    "sessionState": session.get("session_state", ""),
+                    "cusno": cusno or "",
+                    "agentType": request.agent_type.value if request.agent_type else None,
+                    "isFirstCall": session.get("session_state") == "start",
+                },
+            )
+        )
 
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
@@ -388,6 +423,23 @@ class SessionService:
 
         await self.session_repo.update(request.global_session_key, **updates)
 
+        # ES 로그: 세션 상태 변경
+        logger.eslog(
+            LoggerExtraData(
+                logType="SESSION_STATE_UPDATE",
+                sessionId=request.global_session_key,
+                turnId=request.turn_id or "-",
+                agentId=(patch.last_agent_id if patch and patch.last_agent_id else "-"),
+                transactionId="-",
+                payload={
+                    "newSessionState": (
+                        request.session_state.value if request.session_state else session.get("session_state")
+                    ),
+                    "hasStatePatch": bool(patch),
+                },
+            )
+        )
+
         return SessionPatchResponse(status="success", updated_at=now)
 
     async def close_session(self, request: SessionCloseRequest, background_tasks: BackgroundTasks | None = None) -> SessionCloseResponse:
@@ -416,6 +468,21 @@ class SessionService:
         # conversation_id 없이 세션 기준 아카이브 ID 생성
         archived_id = f"arch_{request.global_session_key}"
 
+        # ES 로그: 세션 종료
+        logger.eslog(
+            LoggerExtraData(
+                logType="SESSION_CLOSE",
+                sessionId=request.global_session_key,
+                turnId="-",
+                agentId="-",
+                transactionId="-",
+                payload={
+                    "closeReason": request.close_reason or "",
+                    "closedAt": now.isoformat(),
+                },
+            )
+        )
+
         return SessionCloseResponse(
             status="success",
             closed_at=now,
@@ -425,13 +492,16 @@ class SessionService:
 
 
 def get_session_service() -> SessionService:
-    """SessionService 인스턴스 반환 (DI)"""
+    """SessionService 인스턴스 반환 (DI)
+
+    기본적으로 MinIO 기반 배치 프로파일 저장소를 사용하며,
+    MinIO 설정이 없거나 초기화에 실패하면 배치 프로파일 조회는 비활성화된다.
+    """
     profile_repo = None
     try:
-        from app.repositories.mariadb_batch_profile_repository import MariaDBBatchProfileRepository
+        from app.repositories.minio_batch_profile_repository import MinioBatchProfileRepository
 
-        profile_repo = MariaDBBatchProfileRepository()
-    except Exception as e:
-        logger.warning(f"Failed to initialize MariaDBBatchProfileRepository: {e}")
-        # MariaDB 연결 실패 시 profile_repo는 None으로 유지
+        profile_repo = MinioBatchProfileRepository()
+    except Exception as e:  # pragma: no cover - 환경에 따라 다를 수 있음
+        logger.warning(f"Failed to initialize MinioBatchProfileRepository: {e}")
     return SessionService(profile_repo=profile_repo)

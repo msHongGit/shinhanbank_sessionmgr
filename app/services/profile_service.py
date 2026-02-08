@@ -17,6 +17,7 @@ from app.schemas.common import (
     RealtimePersonalContextRequest,
     RealtimePersonalContextResponse,
 )
+from app.logger_config import LoggerExtraData
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +209,9 @@ class ProfileService:
         redis_client = get_redis_client()
         helper = RedisHelper(redis_client)
 
+        batch_profile_fetched = False
+        saved_realtime_key: str | None = None
+
         if cusno:
             # cusnoN10이 있는 경우: 정상적인 프로파일 저장 플로우
             # 3. 세션에 cusno 매핑 저장 (세션 정보와 cusno 연결)
@@ -215,19 +219,39 @@ class ProfileService:
 
             # 4. Redis에 실시간 프로파일 저장 (CUSNO를 키로 사용)
             await helper.set_realtime_profile(cusno, request.profile_data)
+            saved_realtime_key = cusno
 
-            # 5. 배치 프로파일 조회 (MariaDB의 CUSNO 컬럼에서 조회) 및 Redis에 저장
+            # 5. 배치 프로파일 조회 (MinIO/MariaDB 등) 및 Redis에 저장
             if self.profile_repo:
                 batch_profile_data = await self.profile_repo.get_batch_profile(cusno)
                 if batch_profile_data:
                     # Redis에 배치 프로파일 저장 (CUSNO를 키로 사용)
                     await helper.set_batch_profile(cusno, batch_profile_data)
+                    batch_profile_fetched = True
         else:
             # cusnoN10이 없는 경우: 실시간 프로파일만 저장 (세션 키 기반)
             # 세션에 cusno 저장하지 않음
             # Redis에 실시간 프로파일 저장 (global_session_key를 키로 사용)
             await helper.set_realtime_profile(global_session_key, request.profile_data)
+            saved_realtime_key = global_session_key
             # 배치 프로파일은 조회하지 않음 (CUSNO 없음)
+
+        # ES 로그: 실시간/배치 프로파일 업데이트
+        logger.eslog(
+            LoggerExtraData(
+                logType="REALTIME_BATCH_PROFILE_UPDATE",
+                sessionId=global_session_key,
+                turnId="-",
+                agentId="-",
+                transactionId="-",
+                payload={
+                    "cusno": cusno or "",
+                    "hasCusno": bool(cusno),
+                    "savedRealtimeKey": saved_realtime_key,
+                    "batchProfileFetched": batch_profile_fetched,
+                },
+            )
+        )
 
         return RealtimePersonalContextResponse(
             status="success",

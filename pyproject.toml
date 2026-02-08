@@ -13,7 +13,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.25",
     "pymysql>=1.1.0",
     "aiomysql>=0.2.0",
-    "cryptography>=42.0.0",  # MariaDB 연결 및 암호화에 필요
+    "cryptography>=42.0.0", # MariaDB 연결 및 암호화에 필요
     # Redis (Async)
     "redis>=5.0.1",
     # HTTP Client
@@ -23,6 +23,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # JWT (HS256만 사용하므로 cryptography extra 불필요, 하지만 cryptography는 MariaDB용으로 별도 필요)
     "PyJWT>=2.8.0",
+    "minio>=7.2.20",
 ]
 
 [project.optional-dependencies]

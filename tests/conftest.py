@@ -1,6 +1,6 @@
 """
 Session Manager - Test Configuration and Fixtures (v5.0)
-Sprint 5: Redis + MariaDB Integration Tests
+Redis + MinIO 기반 통합 테스트
 """
 
 import os
@@ -13,7 +13,6 @@ from httpx import ASGITransport, AsyncClient
 # 모든 환경에서 REDIS_URL 필수
 # - 로컬: .env 파일에 Azure Redis 설정
 # - CI: GitHub Actions workflow에서 설정
-# v5.0: 테스트에서는 실제 Redis와 실제 MariaDB를 사용
 from app.main import app
 from app.schemas import ConversationTurn, CustomerProfile, ProfileAttribute
 from app.services.session_service import SessionService
@@ -21,16 +20,11 @@ from app.services.session_service import SessionService
 
 @pytest.fixture(autouse=True)
 def _reset_clients():
-    """각 테스트마다 Redis/MariaDB 클라이언트 초기화 (이벤트 루프 충돌 방지)"""
-    import app.db.mariadb as mariadb_module
+    """각 테스트마다 Redis 클라이언트 초기화 (이벤트 루프 충돌 방지)"""
     import app.db.redis as redis_module
 
     # Redis 클라이언트를 None으로 초기화
     redis_module._redis_client = None
-
-    # MariaDB 엔진 초기화
-    mariadb_module._engine = None
-    mariadb_module._AsyncSessionLocal = None
 
     yield
 
@@ -39,26 +33,24 @@ def _reset_clients():
 
 @pytest_asyncio.fixture
 async def client():
-    """AsyncClient using real Redis and real MariaDB."""
+    """AsyncClient using real Redis and MinIO (if configured)."""
     from app.api.v1.sessions import get_session_service
 
-    # 실제 MariaDB Batch Profile Repository 사용
+    # 실제 MinIO Batch Profile Repository 사용 (가능한 경우)
     profile_repo = None
     try:
-        from app.repositories.mariadb_batch_profile_repository import MariaDBBatchProfileRepository
+        from app.repositories.minio_batch_profile_repository import MinioBatchProfileRepository
 
-        profile_repo = MariaDBBatchProfileRepository()
-    except Exception as e:
+        profile_repo = MinioBatchProfileRepository()
+    except Exception as e:  # pragma: no cover - 테스트 환경에 따라 다를 수 있음
         import logging
 
-        logging.getLogger(__name__).debug(f"MariaDB connection not available: {e}")
+        logging.getLogger(__name__).debug(f"MinIO batch profile repository not available: {e}")
         profile_repo = None
 
-    # SessionService는 실제 Redis와 실제 MariaDB를 사용
+    # SessionService는 실제 Redis와 MinIO(또는 None)를 사용
     def override_session_service():
         return SessionService(profile_repo=profile_repo)
-
-    app.dependency_overrides[get_session_service] = override_session_service
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as ac:
         yield ac
