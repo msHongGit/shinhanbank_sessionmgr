@@ -598,13 +598,12 @@ async def update_realtime_personal_context(
     global_session_key = await get_global_session_key_from_token(token)
 
     profile_data = body.profile_data
-    response_data = profile_data.get("responseData") or {}
-    cusno_raw = response_data.get("cusnoN10")
+    cusno_raw = profile_data.get("cusnoN10")
+    if not cusno_raw:
+        response_data = profile_data.get("responseData") or {}
+        cusno_raw = response_data.get("cusnoN10")
 
     cusno = str(cusno_raw).strip() if cusno_raw else None
-    # if not cusno:
-    #     cusno = None
-
     cusno_display = cusno if cusno else "(no cusnoN10)"
     logger.info(f"Updating realtime profile: global_session_key={global_session_key}, cusno={cusno_display}")
 

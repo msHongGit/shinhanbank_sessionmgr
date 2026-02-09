@@ -360,7 +360,7 @@ EOF
 fi
 
 # 10. 실시간 프로파일 업데이트 (POST /api/v1/sessions/realtime-personal-context)
-# 참고: cusnoN10은 선택적 필드 (없어도 실시간 프로파일 저장 가능, 단 배치 프로파일은 조회 안 됨)
+# 참고: cusnoN10은 profile_data 최상위 필드 (선택적, 없어도 저장 가능)
 print_section "실시간 프로파일 업데이트 (POST /api/v1/sessions/realtime-personal-context)"
 if [ -z "${GLOBAL_SESSION_KEY}" ]; then
   echo "[ERROR] global_session_key가 없어서 실시간 프로파일 업데이트를 건너뜁니다."
