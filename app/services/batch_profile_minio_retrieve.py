@@ -14,6 +14,7 @@ MinIO 단건 조회: CUSNO로 1건 문서 조회 (목표 100ms 이내).
   예: python batch_profile_minio_retrieve.py http://127.0.0.1:9000 minioadmin minioadmin daily 700000001
       python batch_profile_minio_retrieve.py http://127.0.0.1:9000 minioadmin minioadmin monthly 700000001
 """
+
 import os
 import sys
 import time
@@ -23,49 +24,56 @@ try:
     from app.services.batch_profile_utils import (
         PREFIX_DAILY,
         PREFIX_MONTHLY,
-        index_prefix,
-        json_loads,
-        json_dumps,
-        get_s3_error_class,
         create_minio_client_simple,
+        get_s3_error_class,
+        index_prefix,
+        json_dumps,
+        json_loads,
     )
 except ImportError:
     # 하위 호환성: batch_profile_utils가 없는 경우 기본값 사용
     PREFIX_DAILY = "ifc_cus_dd_smry_tot"
     PREFIX_MONTHLY = "ifc_cus_mmby_smry_tot"
-    
+
     def index_prefix(cusno):
         """CUSNO → index 샤드 접두사 (끝 3자리, 0 패딩). 1000샤드(index_000~999)."""
         s = str(cusno).strip()
         return (s.zfill(3))[-3:]
-    
+
     def json_loads(data):
         import json
-        return json.loads(data.decode('utf-8'))
-    
+
+        return json.loads(data.decode("utf-8"))
+
     def json_dumps(doc):
         import json
-        return json.dumps(doc, ensure_ascii=False).encode('utf-8')
-    
+
+        return json.dumps(doc, ensure_ascii=False).encode("utf-8")
+
     def get_s3_error_class():
         try:
             from minio.error import S3Error
+
             return S3Error
         except ImportError:
             try:
                 from minio.commonconfig import S3Error
+
                 return S3Error
             except ImportError:
                 try:
                     from minio.error import ResponseError as S3Error
+
                     return S3Error
                 except ImportError:
+
                     class S3Error(Exception):
                         def __init__(self, message, code=None, *args, **kwargs):
                             super().__init__(message, *args, **kwargs)
                             self.code = code
+
                     return S3Error
-    
+
     from minio import Minio
 
     def create_minio_client_simple(endpoint: str, access_key: str, secret_key: str):
@@ -115,7 +123,6 @@ def retrieve_cusno(
     # 1) 최신 일자 메타데이터(_latest_date.json)에서 조회 경로 결정
     latest_date_meta_key = f"{object_prefix}/_latest_date.json"
     latest_date_str: str | None = None
-    date_source: str | None = None
     query_path: str | None = None
     use_latest = False
 
@@ -124,16 +131,12 @@ def retrieve_cusno(
         latest_date_meta = json_loads(resp.read())
         resp.close()
         resp.release_conn()
-        latest_date_str = (
-            latest_date_meta.get("latest_date")
-            or latest_date_meta.get("load_date", "").replace("-", "")
-        )
+        latest_date_str = latest_date_meta.get("latest_date") or latest_date_meta.get("load_date", "").replace("-", "")
         use_latest = bool(latest_date_meta.get("use_latest", False))
 
         if not latest_date_str or len(latest_date_str) != 8 or not latest_date_str.isdigit():
             latest_date_str = None
         else:
-            date_source = "metadata"
             query_path = f"{object_prefix}/latest/" if use_latest else f"{object_prefix}/{latest_date_str}/"
     except Exception:
         # 메타데이터가 없으면 일자별 디렉토리 목록에서 최신 일자 찾기
@@ -143,14 +146,13 @@ def retrieve_cusno(
             for obj in objects:
                 obj_name = obj.object_name
                 if obj_name.startswith(f"{object_prefix}/"):
-                    remaining = obj_name[len(f"{object_prefix}/"):]
+                    remaining = obj_name[len(f"{object_prefix}/") :]
                     if "/" in remaining:
                         date_dir = remaining.split("/")[0]
                         if date_dir and len(date_dir) == 8 and date_dir.isdigit():
                             date_dirs.append(date_dir)
             if date_dirs:
                 latest_date_str = sorted(date_dirs, reverse=True)[0]
-                date_source = "listing"
                 use_latest = False
                 query_path = f"{object_prefix}/{latest_date_str}/"
         except Exception:
@@ -164,7 +166,6 @@ def retrieve_cusno(
             test_index_key = f"{object_prefix}/latest/index_{test_prefix}.json"
             client.stat_object(bucket, test_index_key)
             latest_date_str = "latest"
-            date_source = "latest"
             use_latest = True
             query_path = f"{object_prefix}/latest/"
         except Exception:
@@ -204,7 +205,7 @@ def retrieve_cusno(
         fallback_index_shard_key = f"{object_prefix}/latest/index_{fallback_prefix}.json"
         fallback_index_full_key = f"{object_prefix}/latest/index.json"
 
-    def fetch_via_index(index_key: str, bulk_obj_key: str) -> Optional[dict]:
+    def fetch_via_index(index_key: str, bulk_obj_key: str) -> dict | None:
         """인덱스 파일을 통해 데이터 조회 (Fast Load 모드)."""
 
         try:
@@ -283,7 +284,7 @@ def retrieve_cusno(
 def main() -> None:
     """
     메인 함수: MinIO 단건 조회 (CUSNO 기준)
-    
+
     Fast Load 모드의 경우 샤드 인덱스를 통해 빠르게 조회합니다 (목표: 100ms 이내).
     """
     if len(sys.argv) < 6:

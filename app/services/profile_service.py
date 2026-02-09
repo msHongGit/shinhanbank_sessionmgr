@@ -7,17 +7,17 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 
-from app.core.exceptions import SessionNotFoundError
+from app.core.exceptions import ProfileNotFoundError, SessionNotFoundError
 from app.db.redis import RedisHelper, get_redis_client
+from app.logger_config import LoggerExtraData
 from app.schemas.common import (
     CustomerProfile,
     ProfileAttribute,
     RealtimePersonalContextRequest,
     RealtimePersonalContextResponse,
 )
-from app.logger_config import LoggerExtraData
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,8 @@ class TestMultiTurnConversationHistory:
     멀티턴 대화 이력(reference_information.conversation_history) 저장/조회 통합 테스트
     """
 
-    def test_multiturn_conversation_history_patch_and_get(self, client, agw_headers, ma_headers):
+    @pytest.mark.asyncio
+    async def test_multiturn_conversation_history_patch_and_get(self, client, agw_headers, ma_headers):
         """
         PATCH로 conversation_history를 저장하고, GET에서 최상위로 노출되는지 검증
         """
@@ -17,7 +18,7 @@ class TestMultiTurnConversationHistory:
             "userId": "user_multiturn_001",
         }
         print("[TEST] POST /api/v1/sessions 요청:", create_req)
-        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        create_resp = await client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         print("[TEST] POST 응답:", create_resp.status_code, create_resp.json())
         assert create_resp.status_code == 201
         global_session_key = create_resp.json()["global_session_key"]
@@ -31,7 +32,7 @@ class TestMultiTurnConversationHistory:
             "state_patch": {"reference_information": {"conversation_history": conversation_history, "current_intent": "계좌조회"}},
         }
         print(f"[TEST] PATCH /api/v1/sessions/{global_session_key}/state 요청:", patch_req)
-        patch_resp = client.patch(
+        patch_resp = await client.patch(
             f"/api/v1/sessions/{global_session_key}/state",
             json=patch_req,
             headers=ma_headers,
@@ -42,7 +43,7 @@ class TestMultiTurnConversationHistory:
 
         # 3. GET으로 세션 조회
         print(f"[TEST] GET /api/v1/sessions/{global_session_key} 요청")
-        get_resp = client.get(
+        get_resp = await client.get(
             f"/api/v1/sessions/{global_session_key}",
             headers=ma_headers,
         )
@@ -59,7 +60,8 @@ class TestMultiTurnConversationHistory:
         assert "turn_ids" in data
         assert data["turn_ids"] == ["turn_001"]
 
-    def test_multiturn_turn_ids_accumulate(self, client, agw_headers, ma_headers):
+    @pytest.mark.asyncio
+    async def test_multiturn_turn_ids_accumulate(self, client, agw_headers, ma_headers):
         """
         동일 세션에 대해 여러 번 PATCH 호출 시 turn_ids가 누적되고,
         dialog_context.turnId가 마지막 턴 ID로 설정되는지 검증
@@ -68,7 +70,7 @@ class TestMultiTurnConversationHistory:
         create_req = {
             "userId": "user_multiturn_002",
         }
-        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        create_resp = await client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
         global_session_key = create_resp.json()["global_session_key"]
 
@@ -84,7 +86,7 @@ class TestMultiTurnConversationHistory:
                 },
             },
         }
-        resp_1 = client.patch(
+        resp_1 = await client.patch(
             f"/api/v1/sessions/{global_session_key}/state",
             json=patch_req_1,
             headers=ma_headers,
@@ -97,7 +99,7 @@ class TestMultiTurnConversationHistory:
             "turn_id": "turn_002",
             "session_state": "talk",
         }
-        resp_2 = client.patch(
+        resp_2 = await client.patch(
             f"/api/v1/sessions/{global_session_key}/state",
             json=patch_req_2,
             headers=ma_headers,
@@ -105,7 +107,7 @@ class TestMultiTurnConversationHistory:
         assert resp_2.status_code == 200
 
         # 4. GET으로 세션 조회
-        get_resp = client.get(
+        get_resp = await client.get(
             f"/api/v1/sessions/{global_session_key}",
             headers=ma_headers,
         )
@@ -115,7 +117,8 @@ class TestMultiTurnConversationHistory:
         # turn_ids가 순서대로 누적되었는지 확인
         assert data["turn_ids"] == ["turn_001", "turn_002"]
 
-    def test_reference_information_custom_keys_roundtrip(self, client, agw_headers, ma_headers):
+    @pytest.mark.asyncio
+    async def test_reference_information_custom_keys_roundtrip(self, client, agw_headers, ma_headers):
         """
         reference_information에 새로운 키/중첩 구조가 들어갔을 때,
         Redis에 그대로 저장되었다가 GET 응답의 reference_information에서 그대로 조회되는지 검증
@@ -124,7 +127,7 @@ class TestMultiTurnConversationHistory:
         create_req = {
             "userId": "user_multiturn_custom_refinfo",
         }
-        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        create_resp = await client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         assert create_resp.status_code == 201
         global_session_key = create_resp.json()["global_session_key"]
 
@@ -151,7 +154,7 @@ class TestMultiTurnConversationHistory:
                 },
             },
         }
-        patch_resp = client.patch(
+        patch_resp = await client.patch(
             f"/api/v1/sessions/{global_session_key}/state",
             json=patch_req,
             headers=ma_headers,
@@ -159,7 +162,7 @@ class TestMultiTurnConversationHistory:
         assert patch_resp.status_code == 200
 
         # 3. GET으로 세션 조회
-        get_resp = client.get(
+        get_resp = await client.get(
             f"/api/v1/sessions/{global_session_key}",
             headers=ma_headers,
         )

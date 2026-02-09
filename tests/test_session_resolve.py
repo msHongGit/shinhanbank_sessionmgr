@@ -6,7 +6,8 @@ import pytest
 class TestSessionResolve:
     """세션 조회 테스트 - MA 주로 사용"""
 
-    def test_resolve_session_success(self, client, agw_headers, ma_headers):
+    @pytest.mark.asyncio
+    async def test_resolve_session_success(self, client, agw_headers, ma_headers):
         """세션 조회 성공"""
         # 먼저 세션 생성
         create_req = {
@@ -17,14 +18,14 @@ class TestSessionResolve:
             },
         }
         print("[TEST] POST /api/v1/sessions 요청:", create_req)
-        create_resp = client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
+        create_resp = await client.post("/api/v1/sessions", json=create_req, headers=agw_headers)
         print("[TEST] POST 응답:", create_resp.status_code, create_resp.json())
         assert create_resp.status_code == 201
         global_session_key = create_resp.json()["global_session_key"]
 
         # 세션 조회
         print(f"[TEST] GET /api/v1/sessions/{global_session_key} 요청 (channel=web)")
-        response = client.get(
+        response = await client.get(
             f"/api/v1/sessions/{global_session_key}",
             params={"channel": "web"},
             headers=ma_headers,
@@ -43,10 +44,11 @@ class TestSessionResolve:
         # customer_profile은 None으로 반환됨 (통합 프로파일 제거)
         assert data.get("customer_profile") is None
 
-    def test_resolve_session_not_found(self, client, ma_headers):
+    @pytest.mark.asyncio
+    async def test_resolve_session_not_found(self, client, ma_headers):
         """세션 없음"""
         print("[TEST] GET /api/v1/sessions/nonexistent_key 요청 (channel=web)")
-        response = client.get(
+        response = await client.get(
             "/api/v1/sessions/nonexistent_key",
             params={"channel": "web"},
             headers=ma_headers,

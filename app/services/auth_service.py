@@ -12,6 +12,7 @@ from app.config import JWT_SECRET_KEY, SESSION_CACHE_TTL
 from app.core.jwt import create_access_token, create_refresh_token, verify_token
 from app.core.jwt_auth import get_global_session_key_from_token
 from app.db.redis import RedisHelper, get_redis_client
+from app.logger_config import LoggerExtraData
 from app.schemas.common import (
     SessionCloseRequest,
     SessionCloseResponse,
@@ -19,7 +20,6 @@ from app.schemas.common import (
     SessionVerifyResponse,
     TokenRefreshResponse,
 )
-from app.logger_config import LoggerExtraData
 
 logger = logging.getLogger(__name__)
 

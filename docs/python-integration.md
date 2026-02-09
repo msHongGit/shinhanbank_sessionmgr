@@ -1,6 +1,3 @@
-DEFAULT_AZURE_MINIO_ENDPOINT="http://shinhanbank-minio-722c35.koreacentral.azurecontainer.io:9000"
-DEFAULT_AZURE_MINIO_CONSOLE="http://shinhanbank-minio-722c35.koreacentral.azurecontainer.io:9001"
-
 # Python에서 batch_profile_minio_retrieve.py 호출하기 (단건 조회)
 
 **프로젝트명**: 신한은행 SOL 배치 MinIO 적재 시스템  

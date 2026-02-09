@@ -1,6 +1,6 @@
 """Session Manager - Session Service (v5.0 - Async).
 
-세션 관리 핵심 로직 (Async 방식, Redis + MariaDB 사용)
+세션 관리 핵심 로직 (Async 방식, Redis 사용)
 """
 
 import contextlib
@@ -9,20 +9,14 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-if TYPE_CHECKING:
-    from app.services.auth_service import AuthService
-    from app.services.profile_service import ProfileService
-
 from fastapi import BackgroundTasks, HTTPException
 
 from app.config import GLOBAL_SESSION_PREFIX
 from app.core.exceptions import SessionNotFoundError
 from app.core.utils import datetime_to_iso, safe_json_dumps, safe_json_parse
 from app.db.redis import RedisHelper, get_redis_client
-from app.repositories import (
-    RedisSessionRepository,
-)
 from app.logger_config import LoggerExtraData
+from app.repositories import RedisSessionRepository
 from app.schemas.common import (
     AgentType,
     ChannelInfo,
@@ -40,6 +34,10 @@ from app.schemas.common import (
     SubAgentStatus,
     TaskQueueStatus,
 )
+from app.services.profile_service import ProfileService
+
+if TYPE_CHECKING:
+    from app.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
 
@@ -131,21 +129,10 @@ class SessionService:
     # ============ AGW API ============
 
     async def create_session(self, request: SessionCreateRequest, background_tasks: BackgroundTasks | None = None) -> SessionCreateResponse:
-        """초기 세션 생성 (AGW → SM) - Global Session Key 자동 생성
-
-        세션 생성 흐름:
-        1. 세션 객체 생성
-        2. Redis 즉시 저장 (세션 스냅샷)
-        3. JWT 토큰 발급
-
-        참고: 프로파일은 세션 생성 시점에는 조회하지 않음 (CUSNO 없음)
-        - 실시간 프로파일: 실시간 프로파일 저장 API 호출 시 cusnoN10으로 저장
-        - 배치 프로파일: 실시간 프로파일 저장 API 호출 시 cusnoN10 값을 CUSNO로 사용하여 MariaDB 조회
-        """
+        """초기 세션 생성 및 JWT 발급."""
         # Session Manager가 Global Session Key 생성
         global_session_key = self._generate_id(GLOBAL_SESSION_PREFIX)
 
-        # 채널 및 세션 진입 유형은 channel 정보에서 파생 (없으면 기본값 사용)
         start_type_value: str | None = None
         if request.channel is not None:
             channel_value = request.channel.event_channel
@@ -153,15 +140,9 @@ class SessionService:
         else:
             channel_value = "utterance"
 
-        # user_id가 없으면 빈 문자열로 저장 (선택적 필드)
         user_id = request.user_id or ""
 
-        # JWT 토큰 발급 (AuthService 위임)
         tokens = await self.auth_service.create_tokens(user_id, global_session_key)
-
-        # Redis 즉시 저장 (세션 스냅샷)
-        # 프로파일은 세션에 저장하지 않음 (Redis에 별도 저장)
-        # 생성한 jti 세션 hash에 함께 저장
 
         await self.session_repo.create(
             global_session_key=global_session_key,
@@ -432,9 +413,7 @@ class SessionService:
                 agentId=(patch.last_agent_id if patch and patch.last_agent_id else "-"),
                 transactionId="-",
                 payload={
-                    "newSessionState": (
-                        request.session_state.value if request.session_state else session.get("session_state")
-                    ),
+                    "newSessionState": (request.session_state.value if request.session_state else session.get("session_state")),
                     "hasStatePatch": bool(patch),
                 },
             )

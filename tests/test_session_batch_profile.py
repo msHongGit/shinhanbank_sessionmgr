@@ -4,7 +4,6 @@ import pytest
 
 from app import config as app_config
 
-
 # 애플리케이션과 동일한 설정 로직(app.config)을 사용해 MinIO 설정 여부를 판단한다.
 MINIO_CONFIGURED = bool(app_config.MINIO_ENDPOINT)
 try:  # pragma: no cover - 테스트 환경에 따라 달라질 수 있음

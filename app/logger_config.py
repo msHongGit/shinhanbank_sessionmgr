@@ -2,6 +2,7 @@ import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any
+
 from pydantic import BaseModel
 
 # Custom log levels
@@ -11,30 +12,35 @@ AGENT_LOG = 16
 logging.addLevelName(ES_LOG, "ESLOG")
 logging.addLevelName(AGENT_LOG, "AGENTLOG")
 
+
 class LoggerExtraData(BaseModel):
-    logType: str
-    sessionId: str = "-"
-    turnId: str = "-"
-    agentId: str = "-"
-    transactionId: str = "-"
+    logType: str  # noqa: N815
+    sessionId: str = "-"  # noqa: N815
+    turnId: str = "-"  # noqa: N815
+    agentId: str = "-"  # noqa: N815
+    transactionId: str = "-"  # noqa: N815
     payload: object
 
     def to_dict(self) -> dict[str, str]:
         """Convert to dict for use in logger.extra parameter."""
         return self.model_dump()
 
+
 def eslog(self: logging.Logger, msg: LoggerExtraData, *args: Any, **kwargs: Any) -> None:
     if self.isEnabledFor(ES_LOG):
         kwargs.setdefault("stacklevel", 2)  # report caller of eslog()
         self._log(ES_LOG, msg.model_dump_json(), args, **kwargs)
 
-def agentlog(self: logging.Logger, msg: LoggerExtraData, *args: Any, **kwargs: Any) -> None:    
+
+def agentlog(self: logging.Logger, msg: LoggerExtraData, *args: Any, **kwargs: Any) -> None:
     if self.isEnabledFor(AGENT_LOG):
         kwargs.setdefault("stacklevel", 2)  # report caller of eslog()
         self._log(AGENT_LOG, msg.model_dump_json(), args, **kwargs)
 
+
 logging.Logger.eslog = eslog  # type: ignore[attr-defined]
 logging.Logger.agentlog = agentlog  # type: ignore[attr-defined]
+
 
 class OnlyESLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -43,7 +49,7 @@ class OnlyESLogFilter(logging.Filter):
 
 class ExcludeESLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        return record.levelno != ES_LOG and record.lineno != AGENT_LOG
+        return record.levelno not in (ES_LOG, AGENT_LOG)
 
 
 def _ensure_handler_once(logger: logging.Logger, handler: logging.Handler) -> None:
@@ -72,9 +78,7 @@ def setup_es_logger(log_dir: str | None = None, pod_uid: str | None = None) -> l
     if logger.level == logging.NOTSET or logger.level > ES_LOG:
         logger.setLevel(ES_LOG)
 
-    fmt = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d %(funcName)s() - %(message)s"
-    )
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d %(funcName)s() - %(message)s")
 
     # eslog.log: ES_LOG only - use pod_uid in filename
     log_filename = f"eslog_{pod_uid}.log"

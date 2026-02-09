@@ -29,23 +29,11 @@ from app.schemas.common import (
     TokenRefreshResponse,
     TurnResponse,
 )
-from app.services.session_service import SessionService
-
-
-from app.repositories.minio_batch_profile_repository import MinioBatchProfileRepository
+from app.services.session_service import SessionService, get_session_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
-
-
-# ============ 의존성 ============
-
-
-def get_session_service() -> SessionService:
-    """SessionService 의존성"""
-    profile_repo = MinioBatchProfileRepository()
-    return SessionService(profile_repo=profile_repo)
 
 
 # ============ 세션 생성 ============
@@ -588,32 +576,11 @@ async def get_session_full(
     status_code=200,
     summary="실시간 프로파일 업데이트",
     description="""
-    실시간 프로파일을 Redis에 저장
+        Access Token 기반으로 실시간 프로파일을 Redis에 저장합니다.
     
-    필수 경로 변수:
-    - global_session_key: 세션 키
-    
-    필수 요청 필드:
-    - global_session_key: Global 세션 키 (경로 변수와 동일해야 함)
-    - profile_data: 실시간 프로파일 데이터 (redis_data.md 구조 그대로 저장, 필드명 변경 없음)
-    
-    선택 요청 필드:
-    - profile_data.cusnoN10: 고객번호 (선택, 없어도 실시간 프로파일 저장 가능)
-    
-    처리 로직:
-    - cusnoN10이 있는 경우:
-      1. 세션에 cusno 저장
-      2. Redis에 profile:realtime:{cusnoN10} 저장 (세션과 동일한 TTL)
-      3. MariaDB에서 배치 프로파일 조회 (CUSNO = cusnoN10)
-      4. Redis에 profile:batch:{cusnoN10} 저장 (세션과 동일한 TTL)
-    - cusnoN10이 없는 경우:
-      1. 세션에 cusno 저장하지 않음
-      2. Redis에 profile:realtime:{global_session_key} 저장 (세션과 동일한 TTL)
-      3. 배치 프로파일 조회하지 않음 (CUSNO 없음)
-    
-    호출 시점:
-    - SOL 인증 완료 후 (세션 생성 이후, 사용자 인증 완료 단계)
-    - 호출 주체: AGW (내부 서비스)
+        - 인증: Authorization 헤더의 Access Token에서 global_session_key 추출
+        - 요청 필드: profile_data (redis_data.md 구조 그대로 사용)
+        - 선택 필드: profile_data.responseData.cusnoN10 (있으면 CUSNO 기준으로 배치/실시간 프로파일 저장)
     """,
 )
 async def update_realtime_personal_context(
@@ -629,15 +596,6 @@ async def update_realtime_personal_context(
 
     # 토큰에서 global_session_key 추출
     global_session_key = await get_global_session_key_from_token(token)
-
-    # body에 global_session_key가 전달된 경우 토큰에서 추출한 값과 일치하는지 검증
-    # if body.global_session_key and body.global_session_key != global_session_key:
-    #     logger.warning(
-    #         "Realtime profile key mismatch: token=%s, body=%s",
-    #         global_session_key,
-    #         body.global_session_key,
-    #     )
-    #     raise HTTPException(status_code=400, detail="global_session_key mismatch")
 
     profile_data = body.profile_data
     response_data = profile_data.get("responseData") or {}
