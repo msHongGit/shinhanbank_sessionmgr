@@ -1,5 +1,5 @@
-# Session Manager Sprint 5 - Dockerfile
-FROM python:3.11-slim
+# Session Manager Sprint 6 - Dockerfile
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

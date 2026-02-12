@@ -1,8 +1,8 @@
 [project]
 name = "session-manager"
-version = "5.0.0"
+version = "6.0.0"
 description = "은행 AI Agent 시스템 세션 관리 서비스"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     # Web Framework
     "fastapi>=0.109.0",
@@ -47,7 +47,7 @@ packages = ["app"]
 
 [tool.ruff]
 line-length = 140
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [

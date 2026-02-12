@@ -8,12 +8,10 @@
 
 import json
 from datetime import datetime
-from typing import Any, TypeVar
-
-T = TypeVar("T")
+from typing import Any
 
 
-def safe_json_parse(value: str | dict | list | None, default: T | None = None) -> dict | list | T | None:
+def safe_json_parse(value: str | dict | list | None, default: Any | None = None) -> dict | list | Any | None:
     """JSON 문자열을 안전하게 파싱
 
     Args:

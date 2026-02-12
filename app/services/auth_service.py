@@ -99,12 +99,29 @@ class AuthService:
         # 4. 세션 조회
         session = await self.session_repo.get(global_session_key)
         if not session:
-            return SessionVerifyResponse(
+            response = SessionVerifyResponse(
                 global_session_key=global_session_key,
                 session_state="",
                 is_alive=False,
                 expires_at=None,
             )
+
+            logger.eslog(
+                LoggerExtraData(
+                    logType="SESSION_VERIFY",
+                    sessionId=global_session_key,
+                    turnId="-",
+                    agentId="-",
+                    transactionId=jti,
+                    payload={
+                        "result": "success",
+                        "reason": "verify",
+                        "isAlive": False,
+                    },
+                )
+            )
+
+            return response
 
         # 5. 만료 시각 파싱
         expires_at = None
@@ -115,12 +132,29 @@ class AuthService:
             except ValueError:
                 expires_at = None
 
-        return SessionVerifyResponse(
+        response = SessionVerifyResponse(
             global_session_key=global_session_key,
             session_state=session.get("session_state", ""),
             is_alive=True,
             expires_at=expires_at,
         )
+
+        logger.eslog(
+            LoggerExtraData(
+                logType="SESSION_VERIFY",
+                sessionId=global_session_key,
+                turnId="-",
+                agentId="-",
+                transactionId=jti,
+                payload={
+                    "result": "success",
+                    "reason": "verify",
+                    "isAlive": True,
+                },
+            )
+        )
+
+        return response
 
     async def refresh_token(self, refresh_token: str) -> TokenRefreshResponse:
         """토큰 갱신
@@ -168,12 +202,28 @@ class AuthService:
         await redis_client.delete(f"jti:{jti}")
         await helper.set_jti_mapping(new_jti, global_session_key, SESSION_CACHE_TTL)
 
-        return TokenRefreshResponse(
+        response = TokenRefreshResponse(
             access_token=new_access_token,
             refresh_token=new_refresh_token,
             global_session_key=global_session_key,
             jti=new_jti,
         )
+
+        logger.eslog(
+            LoggerExtraData(
+                logType="SESSION_REFRESH",
+                sessionId=global_session_key,
+                turnId="-",
+                agentId="-",
+                transactionId=new_jti,
+                payload={
+                    "result": "success",
+                    "reason": "refresh",
+                },
+            )
+        )
+
+        return response
 
     async def ping_session_by_token(self, token: str) -> SessionPingResponse:
         """토큰 기반 세션 Ping (TTL 연장 없음)

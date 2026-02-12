@@ -372,7 +372,7 @@ else
     -d @- <<EOF
 {
   "profile_data": {
-    "cusnoN10": "0616001905",
+    "cusnoN10": "7000001",
     "cusSungNmS20": "홍길동",
     "hpNoS12": "01031286270",
     "biryrMmddS6": "710115",
