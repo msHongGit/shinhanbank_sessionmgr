@@ -21,11 +21,41 @@ def _json_serializer(obj: Any) -> Any:
 
 async def init_redis() -> None:
     """Initialize Redis connection (Async)"""
+    # 기본: 단일 Redis 인스턴스 (REDIS_URL 기반)
     from app.config import REDIS_MAX_CONNECTIONS, REDIS_URL
 
+    # global _redis_client
+    # _redis_client = redis.from_url(
+    #     REDIS_URL,
+    #     encoding="utf-8",
+    #     decode_responses=True,
+    #     max_connections=REDIS_MAX_CONNECTIONS,
+    # )
+
+    # On-Prem Sentinel 환경에서 사용할 경우, 위 블록을 주석 처리하고
+    # 아래 예시 블록의 주석을 해제해 Sentinel 기반으로 연결할 수 있습니다.
+    #
+    from redis.asyncio.sentinel import Sentinel
+    from app.config import (
+        REDIS_SENTINEL_NODES,         # [(host, port), ...]
+        REDIS_SENTINEL_MASTER_NAME,   # 예: "mymaster"
+        REDIS_USERNAME,
+        REDIS_PASSWORD,
+        REDIS_DB,                     # 예: 6
+    )
+    
+    sentinel = Sentinel(
+        REDIS_SENTINEL_NODES,
+        sentinel_kwargs={},
+        decode_responses=True,
+    )
+    
     global _redis_client
-    _redis_client = redis.from_url(
-        REDIS_URL,
+    _redis_client = sentinel.master_for(
+        REDIS_SENTINEL_MASTER_NAME,
+        db=REDIS_DB,
+        username=REDIS_USERNAME,
+        password=REDIS_PASSWORD,
         encoding="utf-8",
         decode_responses=True,
         max_connections=REDIS_MAX_CONNECTIONS,

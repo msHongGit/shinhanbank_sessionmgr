@@ -216,7 +216,7 @@ class SessionCreateRequest(BaseModel):
     """초기 세션 생성 요청 (AGW → SM)
 
     Session Manager가 Global Session Key를 생성하여 반환하며,
-    요청 바디는 userId 를 선택적으로 사용하고,
+    요청 바디는 userId / triggerId 를 선택적으로 사용하고,
     channel 은 EventType / EventChannel 정보를 담는 딕셔너리로 사용한다.
 
     참고: user_id는 세션 생성 시 임시값으로 저장되며,
@@ -224,6 +224,11 @@ class SessionCreateRequest(BaseModel):
     """
 
     user_id: str | None = Field(None, alias="userId", description="사용자 ID (선택)")
+    trigger_id: str = Field(
+        "",
+        alias="triggerId",
+        description="세션 트리거 ID (옵션, 없으면 빈 문자열)",
+    )
     channel: ChannelInfo | None = Field(
         None,
         description="채널/이벤트 정보 (eventType: 세션 진입 유형, eventChannel: 호출 채널)",
@@ -266,6 +271,10 @@ class SessionResolveResponse(BaseModel):
     """세션 조회 응답"""
 
     global_session_key: str = Field(..., description="Global 세션 키")
+    trigger_id: str = Field(
+        "",
+        description="세션 생성 시 전달된 trigger_id (없으면 빈 문자열)",
+    )
     channel: ChannelInfo | None = Field(None, description="세션 채널/이벤트 정보 (EventType, EventChannel)")
     agent_session_key: str | None = Field(None, description="업무 Agent 세션 키")
     session_state: SessionState = Field(..., description="세션 상태")

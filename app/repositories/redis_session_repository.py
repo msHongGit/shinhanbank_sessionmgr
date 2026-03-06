@@ -34,6 +34,7 @@ class RedisSessionRepository:
         customer_profile: dict[str, Any] | None = None,
         profile: dict[str, Any] | None = None,
         start_type: str | None = None,
+        trigger_id: str | None = None,
     ) -> dict[str, Any]:
         """세션 생성 (존재 시 기존 세션 반환)"""
         existing = await self.helper.get_session(global_session_key)
@@ -56,6 +57,11 @@ class RedisSessionRepository:
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
         }
+
+        # 세션 생성 시 전달된 트리거 ID 저장 (없으면 빈 문자열)
+        session["trigger_id"] = str(trigger_id or "")
+
+        print("DEBUG session types:", {k: type(v) for k, v in session.items()})
 
         if start_type is not None:
             # AGW startType 등 세션 진입 유형 메타데이터로 저장

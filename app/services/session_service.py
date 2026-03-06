@@ -141,6 +141,7 @@ class SessionService:
             channel_value = "utterance"
 
         user_id = request.user_id or ""
+        trigger_id = request.trigger_id or ""
 
         tokens = await self.auth_service.create_tokens(user_id, global_session_key)
 
@@ -154,20 +155,23 @@ class SessionService:
             subagent_status=SubAgentStatus.UNDEFINED.value,
             # customer_profile=None,
             start_type=start_type_value,
+            trigger_id=trigger_id,
         )
 
         # ES 로그: 세션 생성
         logger.eslog(
             LoggerExtraData(
                 logType="SESSION_CREATE",
+                #custNo="-",
                 sessionId=global_session_key,
-                turnId="-",
-                agentId="-",
-                transactionId="-",
+                #turnId="-",
+                #agentId="-",
+                #transactionId="-",
                 payload={
                     "userId": user_id,
                     "channel": channel_value,
                     "startType": start_type_value,
+                    "triggerId": trigger_id,
                     "createdAt": datetime.now(UTC).isoformat(),
                 },
             )
@@ -274,13 +278,13 @@ class SessionService:
         logger.eslog(
             LoggerExtraData(
                 logType="SESSION_RESOLVE",
+                custNo=cusno or "-",
                 sessionId=request.global_session_key,
                 turnId="-",
                 agentId=request.agent_id or "-",
                 transactionId="-",
                 payload={
                     "sessionState": session.get("session_state", ""),
-                    "cusno": cusno or "",
                     "agentType": request.agent_type.value if request.agent_type else None,
                     "isFirstCall": session.get("session_state") == "start",
                 },
@@ -289,6 +293,7 @@ class SessionService:
 
         return SessionResolveResponse(
             global_session_key=request.global_session_key,
+            trigger_id=session.get("trigger_id", ""),
             channel=channel_info,
             agent_session_key=agent_session_key,
             session_state=SessionState(session.get("session_state", "start")),
@@ -451,17 +456,17 @@ class SessionService:
         logger.eslog(
             LoggerExtraData(
                 logType="SESSION_CLOSE",
+                custNo=(session.get("cusno") or "-") if session else "-",
                 sessionId=request.global_session_key,
                 turnId="-",
                 agentId="-",
                 transactionId="-",
                 payload={
-                    "closeReason": request.close_reason or "",
+                    "sessionState": session.get("session_state") if session else None,
                     "closedAt": now.isoformat(),
                 },
             )
         )
-
         return SessionCloseResponse(
             status="success",
             closed_at=now,

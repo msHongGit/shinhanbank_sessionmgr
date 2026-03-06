@@ -48,6 +48,31 @@ CONTENT_TYPE = "application/json"
 
 
 # ============================================================================
+# CUSNO 정규화
+# ============================================================================
+
+
+def normalize_cusno(value: str | int | None) -> str | None:
+    """CUSNO 정규화 — 앞자리 0 제거 (MinIO 저장 형식 맞춤).
+
+    MinIO/배치 데이터는 숫자형으로 저장되어 앞자리 0이 없습니다.
+    요청값에 앞자리 0이 포함된 경우 제거하여 일치시킵니다.
+
+    Examples:
+        "064939"    → "64939"
+        "0700000001" → "700000001"
+        "700000001"  → "700000001"  (변경 없음)
+        64939       → "64939"
+        ""          → None
+        None        → None
+    """
+    if value is None:
+        return None
+    normalized = str(value).strip().lstrip("0")
+    return normalized or None
+
+
+# ============================================================================
 # JSON 직렬화 유틸리티
 # ============================================================================
 
@@ -588,7 +613,8 @@ def parse_endpoint(endpoint: str) -> tuple[str, bool]:
     Returns:
         (host, secure) 튜플
     """
-    secure = endpoint.strip().lower().startswith("https://")
+    endpoint = endpoint.strip()
+    secure = endpoint.lower().startswith("https://")
     host = endpoint.replace("https://", "").replace("http://", "").rstrip("/")
     return host, secure
 
@@ -643,3 +669,148 @@ def create_minio_client_simple(endpoint: str, access_key: str, secret_key: str):
 
     host, secure = parse_endpoint(endpoint)
     return Minio(host, access_key=access_key, secret_key=secret_key, secure=secure)
+
+
+# ============================================================================
+# 필드 단위 복호화 — AES-256-GCM
+# 저장 형식: Base64(nonce[12] + ciphertext + tag[16])
+# 키 우선순위: HSM(HSM_ENABLED=true) → ENCRYPTION_KEY 환경변수
+# ============================================================================
+
+_BATCH_ENCRYPTION_KEY: bytes | None = None
+
+
+def _get_batch_encryption_key() -> bytes:
+    """배치 프로파일 복호화용 AES-256 원시 키(32바이트) 반환.
+
+    우선순위:
+      1. HSM — HSM_ENABLED=true 이면 app.core.hsm_key_provider.get_key_from_hsm() 호출
+      2. 환경변수 ENCRYPTION_KEY (Base64 인코딩된 32바이트)
+
+    Raises:
+        RuntimeError: 키 미설정 또는 HSM 접속 실패
+    """
+    import base64
+    import os as _os
+
+    global _BATCH_ENCRYPTION_KEY
+    if _BATCH_ENCRYPTION_KEY is not None:
+        return _BATCH_ENCRYPTION_KEY
+
+    hsm_enabled = _os.getenv("HSM_ENABLED", "false").lower() == "true"
+    if hsm_enabled:
+        try:
+            from app.core.hsm_key_provider import get_key_from_hsm
+
+            # get_key_from_hsm() → base64url(raw_key[:32]);  역디코딩하여 원시 키 획득
+            fernet_key: bytes = get_key_from_hsm()
+            _BATCH_ENCRYPTION_KEY = base64.urlsafe_b64decode(fernet_key)[:32]
+            return _BATCH_ENCRYPTION_KEY
+        except Exception as exc:
+            raise RuntimeError(f"[HSM] 배치 프로파일 복호화 키 조회 실패: {exc}") from exc
+
+    raw = _os.getenv("ENCRYPTION_KEY")
+    if not raw:
+        raise RuntimeError("ENCRYPTION_KEY 환경변수가 설정되지 않았습니다.")
+
+    try:
+        key = base64.b64decode(raw)
+    except Exception as exc:
+        raise RuntimeError(f"ENCRYPTION_KEY Base64 디코딩 실패: {exc}") from exc
+
+    if len(key) != 32:
+        raise RuntimeError(
+            f"ENCRYPTION_KEY 는 32바이트여야 합니다 (현재: {len(key)}바이트)."
+        )
+
+    _BATCH_ENCRYPTION_KEY = key
+    return _BATCH_ENCRYPTION_KEY
+
+
+def decrypt_field_value(encrypted_b64: str) -> str:
+    """단일 필드값 AES-256-GCM 복호화.
+
+    저장 형식: Base64(nonce[12] + ciphertext + tag[16])
+
+    Args:
+        encrypted_b64: Base64 인코딩된 암호문 문자열
+
+    Returns:
+        복호화된 평문 문자열
+
+    Raises:
+        RuntimeError: 키 미설정 또는 복호화 실패
+    """
+    import base64
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    key = _get_batch_encryption_key()
+    raw = base64.b64decode(encrypted_b64)
+    nonce, ct = raw[:12], raw[12:]
+    plaintext = AESGCM(key).decrypt(nonce, ct, None)
+    return plaintext.decode("utf-8")
+
+
+def _decrypt_fields(target: dict, encrypted_columns: list[str]) -> dict:
+    """dict 내 encrypted_columns 에 해당하는 필드만 복호화.
+
+    복호화 실패 필드는 원문 유지 (서비스 연속성 보장).
+    """
+    result = dict(target)
+    for col in encrypted_columns:
+        val = result.get(col)
+        if isinstance(val, str) and val:
+            try:
+                result[col] = decrypt_field_value(val)
+            except Exception:
+                pass  # 복호화 실패 시 원문 유지
+    return result
+
+
+def decrypt_document(doc: dict, encrypted_columns: list[str]) -> dict:
+    """_meta.json 의 encrypted_columns 기준으로 문서 내 암호화 필드 복호화.
+
+    flat / 중첩("data" 키) / 혼합 구조 모두 처리.
+    doc 내 encrypted_yn == 0 이면 복호화 없이 원문 반환.
+
+    - flat 구조 (monthly):
+        {"CUSNO": "700000001", "CUSNM": "<암호문>", ...}
+        → 최상위 키 직접 복호화
+
+    - 중첩 구조 (daily):
+        {"CUSNO": "700000001", "encrypted_yn": 1, "data": {"CUSNM": "<암호문>", ...}}
+        → "data" 내부 키 복호화
+
+    - encrypted_yn == 0: 평문 데이터 → 복호화 없이 원문 반환
+
+    encrypted_columns 는 _meta.json 에서 읽은 가변 목록이며,
+    목록에 없는 컬럼은 암호화 여부와 관계없이 복호화하지 않습니다.
+
+    Args:
+        doc: 조회된 원본 문서 dict
+        encrypted_columns: 복호화 대상 컬럼 이름 목록 (_meta.json 기준, 가변)
+
+    Returns:
+        복호화 적용된 새 dict (원본 불변)
+    """
+    if not encrypted_columns:
+        return doc
+
+    # encrypted_yn == 0 이면 평문 데이터 → 복호화 불필요
+    encrypted_yn = doc.get("encrypted_yn")
+    if encrypted_yn is not None and int(encrypted_yn) == 0:
+        return doc
+
+    result = dict(doc)
+
+    # 중첩 구조 처리 — "data" 키 내부 복호화 (daily 등)
+    if "data" in result and isinstance(result["data"], dict):
+        result["data"] = _decrypt_fields(result["data"], encrypted_columns)
+
+    # flat 구조 처리 — 최상위 키 복호화 (monthly 등)
+    # 중첩 구조여도 최상위에 암호화 컬럼이 있을 수 있으므로 항상 실행
+    result = _decrypt_fields(result, encrypted_columns)
+
+    return result
+

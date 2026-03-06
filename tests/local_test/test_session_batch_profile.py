@@ -40,7 +40,7 @@ class TestBatchProfileIntegration:
         profile_data = {
             "profile_data": {
                 "responseData": {
-                    "cusnoN10": "7000001",
+                    "cusnoN10": "700000001",
                     "cusSungNmS20": "홍길동",
                     "userName": "홍길동",
                 }
@@ -82,7 +82,7 @@ class TestBatchProfileIntegration:
 
         actual_data = realtime_profile.get("responseData", realtime_profile)
 
-        assert actual_data["cusnoN10"] == "7000001"
+        assert actual_data["cusnoN10"] == "700000001"
         assert actual_data["cusSungNmS20"] == "홍길동"
 
         # 5. 배치 프로파일 검증
@@ -90,13 +90,13 @@ class TestBatchProfileIntegration:
         assert batch_profile is not None
         print("[DEBUG][batch_profile] full batch_profile:", batch_profile)
         assert "daily" in batch_profile
-        assert str(batch_profile["daily"]["CUSNO"]) == "7000001"
+        assert str(batch_profile["daily"]["CUSNO"]) == "700000001"
 
         # 월별 배치 프로파일은 MinIO 적재 여부에 따라 없을 수 있으므로
         # 존재하는 경우에만 CUSNO를 검증한다.
         monthly_profile = batch_profile.get("monthly")
         if monthly_profile is not None:
-            assert str(monthly_profile["CUSNO"]) == "7000001"
+            assert str(monthly_profile["CUSNO"]) == "700000001"
 
     @pytest.mark.skipif(
         not (MINIO_CONFIGURED and MINIO_MODULE_AVAILABLE),
@@ -119,7 +119,7 @@ class TestBatchProfileIntegration:
         profile_data = {
             "profile_data": {
                 "responseData": {
-                    "cusnoN10": "7000001",
+                    "cusnoN10": "700000001",
                     "cusSungNmS20": "홍길동",
                 }
             }
@@ -160,16 +160,17 @@ class TestBatchProfileIntegration:
         print("[DEBUG][batch_profile] full batch_profile:", batch_profile)
         assert "daily" in batch_profile
         daily_profile = batch_profile["daily"]
-        assert str(daily_profile["CUSNO"]) == "7000001"
+        assert str(daily_profile["CUSNO"]) == "700000001"
 
         # MinIO 배치 문서 스키마에 맞게, data 필드 구조만 검증한다.
         assert "data" in daily_profile
         assert isinstance(daily_profile["data"], dict)
 
         # 월별 배치 프로파일은 선택적이다.
+        # monthly 데이터는 flat 구조(data 래핑 없음)이므로 CUSNO 존재 여부만 확인한다.
         monthly_profile = batch_profile.get("monthly")
         if monthly_profile is not None:
-            assert "data" in monthly_profile
+            assert "CUSNO" in monthly_profile
 
     async def test_session_without_cusno_does_not_fetch_batch_profile(self, client, agw_headers, ma_headers):
         """cusnoN10 없는 실시간 프로파일은 배치 프로파일 조회 안 함"""
@@ -249,7 +250,7 @@ class TestBatchProfileIntegration:
         profile_data_1 = {
             "profile_data": {
                 "responseData": {
-                    "cusnoN10": "7000001",
+                    "cusnoN10": "700000001",
                     "cusSungNmS20": "홍길동",
                 }
             }
@@ -275,7 +276,7 @@ class TestBatchProfileIntegration:
         profile_data_2 = {
             "profile_data": {
                 "responseData": {
-                    "cusnoN10": "7000001",
+                    "cusnoN10": "700000001",
                     "cusSungNmS20": "김철수",
                     "newField": "newValue",
                 }
@@ -314,14 +315,14 @@ class TestBatchProfileIntegration:
 
         actual_data = realtime_profile.get("responseData", realtime_profile)
 
-        assert actual_data["cusnoN10"] == "7000001"
+        assert actual_data["cusnoN10"] == "700000001"
         assert actual_data["cusSungNmS20"] == "김철수"
         assert actual_data["newField"] == "newValue"
 
         # 6. 배치 프로파일은 유지됨
         batch_profile = session_data.get("batch_profile")
         assert batch_profile is not None
-        assert str(batch_profile["daily"]["CUSNO"]) == "7000001"
+        assert str(batch_profile["daily"]["CUSNO"]) == "700000001"
 
     async def test_invalid_cusno_does_not_crash_batch_profile_fetch(self, client, agw_headers, ma_headers):
         """유효하지 않은 cusno로 배치 프로파일 조회 시 크래시 없음"""

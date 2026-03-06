@@ -25,15 +25,24 @@ try:
         PREFIX_DAILY,
         PREFIX_MONTHLY,
         create_minio_client_simple,
+        decrypt_document,
         get_s3_error_class,
         index_prefix,
         json_dumps,
         json_loads,
+        normalize_cusno,
     )
 except ImportError:
     # 하위 호환성: batch_profile_utils가 없는 경우 기본값 사용
     PREFIX_DAILY = "ifc_cus_dd_smry_tot"
     PREFIX_MONTHLY = "ifc_cus_mmby_smry_tot"
+
+    def normalize_cusno(value):  # type: ignore[misc]
+        """batch_profile_utils 없을 때 폴백: 앞자리 0 제거."""
+        if value is None:
+            return None
+        normalized = str(value).strip().lstrip("0")
+        return normalized or None
 
     def index_prefix(cusno):
         """CUSNO → index 샤드 접두사 (끝 3자리, 0 패딩). 1000샤드(index_000~999)."""
@@ -81,6 +90,40 @@ except ImportError:
         host = endpoint.replace("https://", "").replace("http://", "").rstrip("/")
         return Minio(host, access_key=access_key, secret_key=secret_key, secure=secure)
 
+    def decrypt_document(doc: dict, encrypted_columns: list) -> dict:  # noqa: F811
+        """batch_profile_utils 없을 때 폴백: 복호화 없이 원문 반환."""
+        return doc
+
+
+def _match_cusno(doc: dict, cusno: str, encrypted_columns: list[str]) -> bool:
+    """doc 의 CUSNO 가 요청 cusno 와 일치하는지 확인.
+
+    CUSNO 가 encrypted_columns 에 포함된 경우 복호화 후 비교합니다.
+
+    Args:
+        doc: bulk.jsonl 에서 읽은 원본 문서
+        cusno: 조회할 고객번호 (평문)
+        encrypted_columns: _meta.json 에서 읽은 암호화 컬럼 목록
+
+    Returns:
+        일치 여부
+    """
+    raw_cusno = doc.get("CUSNO")
+    if raw_cusno is None:
+        return False
+
+    # CUSNO 가 암호화 대상인 경우 복호화 후 비교
+    if "CUSNO" in encrypted_columns:
+        try:
+            from app.services.batch_profile_utils import decrypt_field_value
+
+            raw_cusno = decrypt_field_value(str(raw_cusno))
+        except Exception:
+            return False  # 복호화 실패 시 매칭 불가
+
+    # 양쪽 모두 정규화 후 비교 (앞자리 0 제거 — MinIO 저장 형식 맞춤)
+    return normalize_cusno(str(raw_cusno)) == normalize_cusno(str(cusno))
+
 
 def retrieve_cusno(
     *,
@@ -116,7 +159,7 @@ def retrieve_cusno(
     except Exception:
         return None
 
-    cusno_str = str(cusno).strip()
+    cusno_str = normalize_cusno(cusno) or ""
     if not cusno_str:
         return None
 
@@ -258,6 +301,7 @@ def retrieve_cusno(
 
     # 메타데이터는 use_latest=False 인데 실제 데이터는 latest/ 에만 존재하는 경우
     # (예: 최신 적재에서 latest/ 만 채워진 상태)를 위해 latest/ 경로를 fallback 으로 재시도한다.
+    used_fallback = False
     if doc is None and not use_latest and fallback_bulk_key is not None:
         try:
             doc = fetch_via_index(fallback_index_shard_key, fallback_bulk_key)
@@ -275,8 +319,60 @@ def retrieve_cusno(
             except Exception:
                 doc = None
 
+        if doc is not None:
+            used_fallback = True
+
     if doc is None:
         return None
+
+    # 4) _meta.json 에서 encrypted_columns 읽어 복호화
+    #    - 실제 데이터가 latest/ 에서 조회된 경우(used_fallback) latest/_meta.json 우선 시도
+    #    - ENCRYPTION_KEY / HSM_ENABLED 환경변수 미설정 시 원문 그대로 반환
+    effective_query_path = f"{object_prefix}/latest/" if used_fallback else query_path
+    try:
+        meta_key = f"{effective_query_path.rstrip('/')}/_meta.json"  # rstrip으로 슬래시 중복 방지
+        resp = client.get_object(bucket, meta_key)
+        meta = json_loads(resp.read())
+        resp.close()
+        resp.release_conn()
+        encrypted_columns: list[str] = meta.get("encrypted_columns") or []
+    except Exception:
+        encrypted_columns = []
+
+    # 5) _match_cusno 로 실제 CUSNO 일치 여부 검증
+    #    - 인덱스/단건 조회 결과가 올바른 문서인지 확인 (인덱스 stale 방지)
+    #    - CUSNO 가 encrypted_columns 에 포함된 경우 복호화 후 비교
+    if not _match_cusno(doc, cusno_str, encrypted_columns):
+        # 인덱스나 단건 조회 결과가 불일치 → bulk.jsonl 전체 순차 스캔으로 fallback
+        actual_bulk_key = f"{object_prefix}/latest/bulk.jsonl" if used_fallback else bulk_key
+        doc = None
+        try:
+            resp = client.get_object(bucket, actual_bulk_key)
+            raw_data = resp.read()
+            resp.close()
+            resp.release_conn()
+            for line in raw_data.decode("utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    candidate = json_loads(line.encode("utf-8"))
+                    if _match_cusno(candidate, cusno_str, encrypted_columns):
+                        doc = candidate
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    if doc is None:
+        return None
+
+    if encrypted_columns:
+        try:
+            doc = decrypt_document(doc, encrypted_columns)
+        except Exception:
+            pass  # ENCRYPTION_KEY 미설정 등 → 암호화된 원문 반환
 
     return doc
 

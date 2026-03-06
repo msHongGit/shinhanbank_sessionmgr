@@ -82,14 +82,16 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --tb=short"
+asyncio_mode = "auto"
 markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
+    "unit: Unit tests (Mock 기반, 외부 연동 없음)",
+    "integration: Integration tests (실제 Redis/MinIO 연동)",
     "e2e: End-to-end tests",
     "slow: Slow tests",
+    "session: SessionService 관련 테스트",
+    "auth: AuthService 관련 테스트",
+    "profile: ProfileService 관련 테스트",
 ]
-# 참고: async 테스트가 필요하면 @pytest.mark.asyncio 데코레이터 사용
-# asyncio_mode는 pytest-asyncio 플러그인이 설치되어 있어도 경고 발생하므로 제거
 
 [tool.coverage.run]
 omit = [

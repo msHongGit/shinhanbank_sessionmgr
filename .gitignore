@@ -24,3 +24,5 @@ htmlcov/
 /ma_session/
 /agw_workflow/
 /scripts/
+config.env
+/output

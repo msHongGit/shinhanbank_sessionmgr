@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from app.core.exceptions import ProfileNotFoundError, SessionNotFoundError
 from app.db.redis import RedisHelper, get_redis_client
 from app.logger_config import LoggerExtraData
+from app.services.batch_profile_utils import normalize_cusno
 from app.schemas.common import (
     CustomerProfile,
     ProfileAttribute,
@@ -201,15 +202,17 @@ class ProfileService:
         cusno_raw = profile_data.get("cusnoN10")
 
         if not cusno_raw:
-            reponse_data = profile_data.get("responseData", {})
-            cusno_raw = reponse_data.get("cusnoN10")
+            response_data = profile_data.get("responseData", {})
+            cusno_raw = response_data.get("cusnoN10")
         if cusno_raw:
-            cusno = str(cusno_raw).strip() or None
+            cusno = normalize_cusno(cusno_raw)  # 앞자리 0 제거 (MinIO 숫자형 저장 형식 맞춤)
 
         redis_client = get_redis_client()
         helper = RedisHelper(redis_client)
 
         batch_profile_fetched = False
+        batch_daily_fetched = False
+        batch_monthly_fetched = False
         saved_realtime_key: str | None = None
 
         if cusno:
@@ -228,6 +231,8 @@ class ProfileService:
                     # Redis에 배치 프로파일 저장 (CUSNO를 키로 사용)
                     await helper.set_batch_profile(cusno, batch_profile_data)
                     batch_profile_fetched = True
+                    batch_daily_fetched = "daily" in batch_profile_data
+                    batch_monthly_fetched = "monthly" in batch_profile_data
         else:
             # cusnoN10이 없는 경우: 실시간 프로파일만 저장 (세션 키 기반)
             # 세션에 cusno 저장하지 않음
@@ -240,15 +245,21 @@ class ProfileService:
         logger.eslog(
             LoggerExtraData(
                 logType="REALTIME_BATCH_PROFILE_UPDATE",
+                custNo=cusno or "-",
                 sessionId=global_session_key,
                 turnId="-",
                 agentId="-",
                 transactionId="-",
                 payload={
-                    "cusno": cusno or "",
                     "hasCusno": bool(cusno),
                     "savedRealtimeKey": saved_realtime_key,
                     "batchProfileFetched": batch_profile_fetched,
+                    "batchDailyFetched": batch_daily_fetched,
+                    "batchMonthlyFetched": batch_monthly_fetched,
+                    "redisKeys": {
+                        "realtime": f"profile:realtime:{saved_realtime_key}",
+                        "batch": f"profile:batch:{cusno}" if cusno else None,
+                    },
                 },
             )
         )
