@@ -12,7 +12,6 @@ from fastapi import HTTPException, status
 from app.core.exceptions import ProfileNotFoundError, SessionNotFoundError
 from app.db.redis import RedisHelper, get_redis_client
 from app.logger_config import LoggerExtraData
-from app.services.batch_profile_utils import normalize_cusno
 from app.schemas.common import (
     CustomerProfile,
     ProfileAttribute,
@@ -205,7 +204,7 @@ class ProfileService:
             response_data = profile_data.get("responseData", {})
             cusno_raw = response_data.get("cusnoN10")
         if cusno_raw:
-            cusno = normalize_cusno(cusno_raw)  # 앞자리 0 제거 (MinIO 숫자형 저장 형식 맞춤)
+            cusno = str(cusno_raw).strip() or None
 
         redis_client = get_redis_client()
         helper = RedisHelper(redis_client)

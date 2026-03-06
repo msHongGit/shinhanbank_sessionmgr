@@ -6,11 +6,14 @@
 """
 
 import io
+import logging
 import sys
 import tempfile
 import threading
 import time
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # orjson import
 try:
@@ -46,30 +49,8 @@ PREFIX_MONTHLY = "ifc_cus_mmby_smry_tot"
 # Content Type
 CONTENT_TYPE = "application/json"
 
-
-# ============================================================================
-# CUSNO 정규화
-# ============================================================================
-
-
-def normalize_cusno(value: str | int | None) -> str | None:
-    """CUSNO 정규화 — 앞자리 0 제거 (MinIO 저장 형식 맞춤).
-
-    MinIO/배치 데이터는 숫자형으로 저장되어 앞자리 0이 없습니다.
-    요청값에 앞자리 0이 포함된 경우 제거하여 일치시킵니다.
-
-    Examples:
-        "064939"    → "64939"
-        "0700000001" → "700000001"
-        "700000001"  → "700000001"  (변경 없음)
-        64939       → "64939"
-        ""          → None
-        None        → None
-    """
-    if value is None:
-        return None
-    normalized = str(value).strip().lstrip("0")
-    return normalized or None
+# 복호화 실패 시 필드 제거 여부 (암호문을 Redis에 저장하지 않기 위해 True 권장)
+REMOVE_FIELD_ON_DECRYPT_FAILURE: bool = True
 
 
 # ============================================================================
@@ -755,16 +736,42 @@ def decrypt_field_value(encrypted_b64: str) -> str:
 def _decrypt_fields(target: dict, encrypted_columns: list[str]) -> dict:
     """dict 내 encrypted_columns 에 해당하는 필드만 복호화.
 
-    복호화 실패 필드는 원문 유지 (서비스 연속성 보장).
+    복호화 성공: 평문으로 교체
+    복호화 실패:
+        REMOVE_FIELD_ON_DECRYPT_FAILURE=True  → 해당 필드 제거 (암호문 저장 방지)
+        REMOVE_FIELD_ON_DECRYPT_FAILURE=False → 원문 유지 (하위 호환)
     """
     result = dict(target)
+    failed_columns: list[str] = []
+
     for col in encrypted_columns:
         val = result.get(col)
         if isinstance(val, str) and val:
             try:
                 result[col] = decrypt_field_value(val)
-            except Exception:
-                pass  # 복호화 실패 시 원문 유지
+            except Exception as exc:
+                failed_columns.append(col)
+                if REMOVE_FIELD_ON_DECRYPT_FAILURE:
+                    result.pop(col, None)  # 암호문 필드 제거
+                    logger.warning(
+                        "[배치프로파일] 복호화 실패 — 필드 제거: col=%s, reason=%s",
+                        col,
+                        exc,
+                    )
+                else:
+                    logger.warning(
+                        "[배치프로파일] 복호화 실패 — 원문 유지: col=%s, reason=%s",
+                        col,
+                        exc,
+                    )
+
+    if failed_columns:
+        logger.error(
+            "[배치프로파일] 복호화 실패 컬럼 목록: %s (제거여부=%s)",
+            failed_columns,
+            REMOVE_FIELD_ON_DECRYPT_FAILURE,
+        )
+
     return result
 
 

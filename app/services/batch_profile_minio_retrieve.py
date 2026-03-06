@@ -30,19 +30,11 @@ try:
         index_prefix,
         json_dumps,
         json_loads,
-        normalize_cusno,
     )
 except ImportError:
     # 하위 호환성: batch_profile_utils가 없는 경우 기본값 사용
     PREFIX_DAILY = "ifc_cus_dd_smry_tot"
     PREFIX_MONTHLY = "ifc_cus_mmby_smry_tot"
-
-    def normalize_cusno(value):  # type: ignore[misc]
-        """batch_profile_utils 없을 때 폴백: 앞자리 0 제거."""
-        if value is None:
-            return None
-        normalized = str(value).strip().lstrip("0")
-        return normalized or None
 
     def index_prefix(cusno):
         """CUSNO → index 샤드 접두사 (끝 3자리, 0 패딩). 1000샤드(index_000~999)."""
@@ -121,8 +113,7 @@ def _match_cusno(doc: dict, cusno: str, encrypted_columns: list[str]) -> bool:
         except Exception:
             return False  # 복호화 실패 시 매칭 불가
 
-    # 양쪽 모두 정규화 후 비교 (앞자리 0 제거 — MinIO 저장 형식 맞춤)
-    return normalize_cusno(str(raw_cusno)) == normalize_cusno(str(cusno))
+    return str(raw_cusno) == str(cusno)
 
 
 def retrieve_cusno(
@@ -159,7 +150,7 @@ def retrieve_cusno(
     except Exception:
         return None
 
-    cusno_str = normalize_cusno(cusno) or ""
+    cusno_str = str(cusno).strip()
     if not cusno_str:
         return None
 
