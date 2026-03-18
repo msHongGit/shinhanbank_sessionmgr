@@ -15,18 +15,23 @@ MinIO 단건 조회: CUSNO로 1건 문서 조회 (목표 100ms 이내).
       python batch_profile_minio_retrieve.py http://127.0.0.1:9000 minioadmin minioadmin monthly 700000001
 """
 
+import logging
 import os
 import sys
 import time
 from typing import Any, Optional
 
+logger = logging.getLogger(__name__)
+
+from minio.error import S3Error as _S3Error
+
 try:
     from app.services.batch_profile_utils import (
         PREFIX_DAILY,
         PREFIX_MONTHLY,
+        apply_column_mapping,
         create_minio_client_simple,
         decrypt_document,
-        get_s3_error_class,
         index_prefix,
         json_dumps,
         json_loads,
@@ -50,30 +55,6 @@ except ImportError:
         import json
 
         return json.dumps(doc, ensure_ascii=False).encode("utf-8")
-
-    def get_s3_error_class():
-        try:
-            from minio.error import S3Error
-
-            return S3Error
-        except ImportError:
-            try:
-                from minio.commonconfig import S3Error
-
-                return S3Error
-            except ImportError:
-                try:
-                    from minio.error import ResponseError as S3Error
-
-                    return S3Error
-                except ImportError:
-
-                    class S3Error(Exception):
-                        def __init__(self, message, code=None, *args, **kwargs):
-                            super().__init__(message, *args, **kwargs)
-                            self.code = code
-
-                    return S3Error
 
     from minio import Minio
 
@@ -110,7 +91,7 @@ def _match_cusno(doc: dict, cusno: str, encrypted_columns: list[str]) -> bool:
             from app.services.batch_profile_utils import decrypt_field_value
 
             raw_cusno = decrypt_field_value(str(raw_cusno))
-        except Exception:
+        except (ValueError, RuntimeError, ImportError):
             return False  # 복호화 실패 시 매칭 불가
 
     return str(raw_cusno) == str(cusno)
@@ -147,7 +128,7 @@ def retrieve_cusno(
     # 여기서는 orjson import를 강제하지 않는다.)
     try:
         client = create_minio_client_simple(endpoint, access_key, secret_key)
-    except Exception:
+    except (OSError, ValueError, ImportError):
         return None
 
     cusno_str = str(cusno).strip()
@@ -172,7 +153,7 @@ def retrieve_cusno(
             latest_date_str = None
         else:
             query_path = f"{object_prefix}/latest/" if use_latest else f"{object_prefix}/{latest_date_str}/"
-    except Exception:
+    except (_S3Error, OSError, ValueError):
         # 메타데이터가 없으면 일자별 디렉토리 목록에서 최신 일자 찾기
         try:
             objects = client.list_objects(bucket, prefix=f"{object_prefix}/", recursive=False)
@@ -189,7 +170,7 @@ def retrieve_cusno(
                 latest_date_str = sorted(date_dirs, reverse=True)[0]
                 use_latest = False
                 query_path = f"{object_prefix}/{latest_date_str}/"
-        except Exception:
+        except (_S3Error, OSError):
             return None
 
     if not latest_date_str:
@@ -202,7 +183,7 @@ def retrieve_cusno(
             latest_date_str = "latest"
             use_latest = True
             query_path = f"{object_prefix}/latest/"
-        except Exception:
+        except (_S3Error, OSError):
             return None
 
     if not query_path:
@@ -268,7 +249,7 @@ def retrieve_cusno(
                 resp.release_conn()
                 line = data[start_off : start_off + length]
                 return json_loads(line)
-        except Exception:
+        except (_S3Error, OSError, ValueError, KeyError):
             return None
 
     doc: dict[str, Any] | None = None
@@ -278,7 +259,7 @@ def retrieve_cusno(
         doc = fetch_via_index(index_shard_key, bulk_key)
         if doc is None:
             doc = fetch_via_index(index_full_key, bulk_key)
-    except Exception:
+    except (_S3Error, OSError, ValueError):
         doc = None
 
     if doc is None:
@@ -287,7 +268,7 @@ def retrieve_cusno(
             doc = json_loads(resp.read())
             resp.close()
             resp.release_conn()
-        except Exception:
+        except (_S3Error, OSError, ValueError):
             doc = None
 
     # 메타데이터는 use_latest=False 인데 실제 데이터는 latest/ 에만 존재하는 경우
@@ -298,7 +279,7 @@ def retrieve_cusno(
             doc = fetch_via_index(fallback_index_shard_key, fallback_bulk_key)
             if doc is None:
                 doc = fetch_via_index(fallback_index_full_key, fallback_bulk_key)
-        except Exception:
+        except (_S3Error, OSError, ValueError):
             doc = None
 
         if doc is None:
@@ -307,7 +288,7 @@ def retrieve_cusno(
                 doc = json_loads(resp.read())
                 resp.close()
                 resp.release_conn()
-            except Exception:
+            except (_S3Error, OSError, ValueError):
                 doc = None
 
         if doc is not None:
@@ -318,7 +299,7 @@ def retrieve_cusno(
 
     # 4) _meta.json 에서 encrypted_columns 읽어 복호화
     #    - 실제 데이터가 latest/ 에서 조회된 경우(used_fallback) latest/_meta.json 우선 시도
-    #    - ENCRYPTION_KEY / HSM_ENABLED 환경변수 미설정 시 원문 그대로 반환
+    #    - IniSafe Paccel SO 미설치 시 암호화 원문 그대로 반환
     effective_query_path = f"{object_prefix}/latest/" if used_fallback else query_path
     try:
         meta_key = f"{effective_query_path.rstrip('/')}/_meta.json"  # rstrip으로 슬래시 중복 방지
@@ -327,8 +308,27 @@ def retrieve_cusno(
         resp.close()
         resp.release_conn()
         encrypted_columns: list[str] = meta.get("encrypted_columns") or []
-    except Exception:
+        column_mapping: dict[str, str] = meta.get("column_info") or {}
+        if column_mapping:
+            logger.warning(
+                "[배치프로파일] 한글 매핑 적용 가능: key=%s, 매핑 컬럼 수=%d, 샘플=%s",
+                meta_key,
+                len(column_mapping),
+                dict(list(column_mapping.items())[:3]),
+            )
+        else:
+            logger.warning(
+                "[배치프로파일] column_info 없음 — 한글 매핑 미적용: key=%s",
+                meta_key,
+            )
+    except (_S3Error, OSError, ValueError) as meta_exc:
+        logger.warning(
+            "[배치프로파일] _meta.json 조회 실패 — 한글 매핑 미적용: key=%s, reason=%s",
+            meta_key,
+            meta_exc,
+        )
         encrypted_columns = []
+        column_mapping = {}
 
     # 5) _match_cusno 로 실제 CUSNO 일치 여부 검증
     #    - 인덱스/단건 조회 결과가 올바른 문서인지 확인 (인덱스 stale 방지)
@@ -351,9 +351,9 @@ def retrieve_cusno(
                     if _match_cusno(candidate, cusno_str, encrypted_columns):
                         doc = candidate
                         break
-                except Exception:
+                except (ValueError, UnicodeDecodeError):
                     continue
-        except Exception:
+        except (_S3Error, OSError):
             pass
 
     if doc is None:
@@ -362,8 +362,12 @@ def retrieve_cusno(
     if encrypted_columns:
         try:
             doc = decrypt_document(doc, encrypted_columns)
-        except Exception:
-            pass  # ENCRYPTION_KEY 미설정 등 → 암호화된 원문 반환
+        except (ValueError, RuntimeError):
+            pass  # IniSafe Paccel SO 미설치 등 → 암호화된 원문 반환
+
+    # _meta.json 의 column_mapping 기준으로 한글 컬럼 키 추가 (영문 키 유지)
+    if column_mapping:
+        doc = apply_column_mapping(doc, column_mapping)
 
     return doc
 
@@ -408,7 +412,7 @@ def main() -> None:
         import orjson
 
         print(orjson.dumps(result, option=orjson.OPT_INDENT_2).decode(), flush=True)
-    except Exception:
+    except (ImportError, TypeError, ValueError):
         import json
 
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)

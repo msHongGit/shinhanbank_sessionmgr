@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     try:
         setup_es_logger()
         logging.getLogger(__name__).info("ES logger initialized")
-    except Exception as exc:  # pragma: no cover - 환경에 따라 다를 수 있음
+    except (OSError, ValueError) as exc:  # pragma: no cover - 환경에 따라 다를 수 있음
         logging.getLogger(__name__).warning("Failed to setup ES logger: %s", exc, exc_info=True)
 
     # Redis 비동기 초기화

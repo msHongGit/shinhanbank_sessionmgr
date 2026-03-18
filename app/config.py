@@ -1,6 +1,7 @@
 """Session Manager - Configuration Settings."""
 
 import ast
+import logging
 import os
 from pathlib import Path
 
@@ -30,7 +31,8 @@ if _raw_sentinel_nodes:
         REDIS_SENTINEL_NODES: list[tuple[str, int]] = [
             (str(host), int(port)) for host, port in ast.literal_eval(_raw_sentinel_nodes)
         ]
-    except Exception:
+    except (ValueError, SyntaxError, TypeError) as e:
+        logging.warning("REDIS_SENTINEL_NODES 파싱 실패 — Sentinel 비활성화: value=%r, reason=%s", _raw_sentinel_nodes, e)
         REDIS_SENTINEL_NODES = []
 else:
     REDIS_SENTINEL_NODES = []
@@ -65,22 +67,12 @@ MINIO_SECRET_KEY: str | None = os.getenv("MINIO_SECRET_KEY")
 MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "shinhanobj")
 
 # === Batch Profile Decryption ===
-# ENCRYPTION_KEY: AES-256 키를 Base64 인코딩한 값 (32바이트 원시 키)
-# HSM_ENABLED=true 이면 무시되고 HSM 에서 키를 가져옴
-ENCRYPTION_KEY: str | None = os.getenv("ENCRYPTION_KEY")
+# 암호화 키는 IniSafe Paccel(app.utils.inisafe.IniSafePaccel)에서 조회합니다.
+# ENCRYPTION_KEY 환경변수는 더 이상 사용하지 않습니다.
 
 # === Log Encryption ===
 # LOG_ENCRYPT_ENABLED=true  → payload 암호화 (운영)
 # LOG_ENCRYPT_ENABLED=false → 평문 로그 (개발/디버그)
 LOG_ENCRYPT_ENABLED: bool = os.getenv("LOG_ENCRYPT_ENABLED", "false").lower() == "true"
-LOG_ENCRYPTION_SECRET: str | None = os.getenv("LOG_ENCRYPTION_SECRET")
-LOG_ENCRYPTION_SALT: str = os.getenv("LOG_ENCRYPTION_SALT", "default-log-encryption-salt")
-
-# === HSM Configuration ===
-# HSM_ENABLED=true  → HSM PKCS#11 또는 고객사 SDK 에서 키 조회 (on-prem 운영)
-# HSM_ENABLED=false → LOG_ENCRYPTION_SECRET 기반 PBKDF2 (기본)
-HSM_ENABLED: bool = os.getenv("HSM_ENABLED", "false").lower() == "true"
-HSM_LIB_PATH: str | None = os.getenv("HSM_LIB_PATH")
-HSM_TOKEN_LABEL: str | None = os.getenv("HSM_TOKEN_LABEL")
-HSM_PIN: str | None = os.getenv("HSM_PIN")
-HSM_KEY_LABEL: str | None = os.getenv("HSM_KEY_LABEL")
+# LOG_ENCRYPTION_SECRET, LOG_ENCRYPTION_SALT, HSM_*, INISAFE_ENABLED 등 구 환경변수는 제거됨
+# 암호화는 모두 app.utils.inisafe.IniSafePaccel 단일 출처로 통일되었습니다.

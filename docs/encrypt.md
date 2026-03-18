@@ -30,13 +30,20 @@ python3 -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"
 
 ---
 
-## 3. 키 조회 우선순위
+## 3. 키 조회 방식
 
-1. **환경 변수** `ENCRYPTION_KEY` (Base64 디코딩 후 32바이트 검증)
-2. **KMS** `get_encryption_key_from_kms()` (현재 stub)
-3. 둘 다 실패 시 `RuntimeError`
+**IniSafe Paccel** 단일 출처로 통일되었습니다.
 
-HSM(Inisafe Paccel) 사용 시 프로젝트 루트 **crypto.py**의 `get_key()`로 키를 가져온 뒤 Base64 인코딩하여 `ENCRYPTION_KEY`에 설정할 수 있습니다.
+| 구성 | 설명 |
+|------|------|
+| **`app/utils/inisafe.py`** | `IniSafePaccel().get_symm_key()` → `ISPSymmKey` (symmKey hex + symmIV hex) 반환 |
+| **로그 암호화** | `logger_config._get_encryption_key()` → `IniSafePaccel().get_symm_key()` |
+| **배치 복호화** | `batch_profile_utils._get_batch_encryption_key()` → `IniSafePaccel().get_symm_key()` |
+
+운영 환경에서는 `app/utils/inisafe.py`를 내부망의 실제 IniSafe Paccel SO 구현으로 교체합니다.  
+개발/테스트 환경에서는 스텐 사용 분기 없음 — `LOG_ENCRYPT_ENABLED=false`로 암호화 우회 가능.
+
+> **구 환경변수** `ENCRYPTION_KEY`, `HSM_ENABLED`, `LOG_ENCRYPTION_SECRET` 등은 제거되었습니다.
 
 ---
 

@@ -3,11 +3,10 @@ Session Manager
 """
 
 import logging
-from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
+from app.core.exceptions import SessionNotFoundError
 from app.core.jwt_auth import extract_token_from_request, get_global_session_key_from_token
 from app.schemas.common import (
     AgentType,
@@ -17,10 +16,8 @@ from app.schemas.common import (
     SessionCloseResponse,
     SessionCreateRequest,
     SessionCreateResponse,
-    SessionFullResponse,
     SessionPatchRequest,
     SessionPatchResponse,
-    SessionPingResponse,
     SessionResolveRequest,
     SessionResolveResponse,
     SessionVerifyResponse,
@@ -69,60 +66,20 @@ async def create_session(
     background_tasks: BackgroundTasks,
     service: SessionService = Depends(get_session_service),
 ):
-    """
-    세션 생성 API - JWT 토큰 발급 포함
-
-    - AGW: Agent Gateway가 초기 세션 생성
-    - JWT 토큰 발급: Access Token 및 Refresh Token 자동 발급
-    """
     user_id_display = request.user_id or "(empty)"
     logger.info(f"Creating session for user_id: {user_id_display}")
     try:
         result = await service.create_session(request, background_tasks)
         logger.info(f"Session created: global_session_key={result.global_session_key}")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to create session for user_id={user_id_display}: {e}", exc_info=True)
-        raise
+        raise HTTPException(status_code=500, detail="세션 생성에 실패했습니다.")
 
 
-# ============ JWT Token Verification & Refresh (구체적인 경로를 먼저 정의) ============
-# 주의: FastAPI는 라우트를 등록한 순서대로 매칭하므로,
-# 구체적인 경로(/ping, /verify, /refresh)를 동적 경로(/{global_session_key})보다 먼저 정의해야 합니다.
-
-
-@router.get(
-    "/ping",
-    response_model=SessionPingResponse,
-    summary="세션 생존 확인",
-    description="""
-    세션이 살아있는지 확인, 토큰에서 추출
-    
-    요청:
-    - 헤더: Authorization: Bearer <access_token> 또는 쿠키의 access_token
-
-    주요 응답 필드:
-    - is_alive: 세션 존재 여부 (false면 세션이 없거나 만료됨)
-    - expires_at: 현재 만료 시각 (is_alive=false이면 null, TTL 연장 안 함)
-    """,
-)
-async def ping_session(
-    request: Request,
-    service: SessionService = Depends(get_session_service),
-):
-    """세션 Ping API (토큰 기반, TTL 연장 없음)"""
-    token = extract_token_from_request(request)
-    if not token:
-        logger.warning("Ping request without access token")
-        raise HTTPException(status_code=401, detail="Access token required")
-
-    try:
-        result = await service.auth_service.ping_session_by_token(token)
-        logger.info(f"Session ping: is_alive={result.is_alive}")
-        return result
-    except Exception as e:
-        logger.error(f"Failed to ping session: {e}", exc_info=True)
-        raise
+# 주의: 구체적인 경로(/verify, /refresh)를 동적 경로(/{global_session_key})보다 먼저 정의
 
 
 @router.get(
@@ -146,7 +103,6 @@ async def verify_token_and_get_session(
     request: Request,
     service: SessionService = Depends(get_session_service),
 ):
-    """토큰 검증 및 세션 정보 조회 API"""
     token = extract_token_from_request(request)
     if not token:
         logger.warning("Verify request without access token")
@@ -156,9 +112,11 @@ async def verify_token_and_get_session(
         result = await service.auth_service.verify_token_and_get_session(token)
         logger.info(f"Token verified: global_session_key={result.global_session_key}")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to verify token: {e}", exc_info=True)
-        raise
+        raise HTTPException(status_code=500, detail="토큰 검증에 실패했습니다.")
 
 
 @router.post(
@@ -185,8 +143,6 @@ async def refresh_token(
     refresh_request: TokenRefreshRequest | None = None,
     service: SessionService = Depends(get_session_service),
 ):
-    """토큰 갱신 API"""
-    # Refresh Token 추출 (쿠키 우선, 없으면 요청 body)
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token and refresh_request:
         refresh_token = refresh_request.refresh_token
@@ -205,9 +161,11 @@ async def refresh_token(
         result = await service.auth_service.refresh_token(refresh_token)
         logger.info(f"Token refreshed: global_session_key={result.global_session_key}")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to refresh token: {e}", exc_info=True)
-        raise
+        raise HTTPException(status_code=500, detail="토큰 갱신에 실패했습니다.")
 
 
 # ============ 세션 조회 ============
@@ -242,13 +200,6 @@ async def get_session(
     agent_id: str | None = Query(None, description="Agent ID (옵션)"),
     service: SessionService = Depends(get_session_service),
 ):
-    """
-    세션 조회 API
-
-    - MA: 세션 상태, SubAgent 상태 조회
-    - Portal: 관리자 조회
-    - Client: 사용자 세션 조회
-    """
     logger.info(f"Getting session: global_session_key={global_session_key}, agent_type={agent_type}, agent_id={agent_id}")
     try:
         request = SessionResolveRequest(
@@ -259,9 +210,13 @@ async def get_session(
         result = await service.resolve_session(request)
         logger.info(f"Session retrieved: global_session_key={global_session_key}, state={result.session_state}")
         return result
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get session: global_session_key={global_session_key}, error={e}", exc_info=True)
-        raise
+        raise HTTPException(status_code=500, detail="세션 조회에 실패했습니다.")
 
 
 # ============ 세션 상태 업데이트 ============
@@ -300,13 +255,6 @@ async def update_session_state(
     background_tasks: BackgroundTasks,
     service: SessionService = Depends(get_session_service),
 ):
-    """
-    세션 상태 업데이트 API
-
-    - 세션 상태 전이 (Policy 검증 포함)
-    - SubAgent 상태 업데이트
-    """
-    # global_session_key는 path에서도 받고 body에도 있어야 하므로 검증
     if request.global_session_key != global_session_key:
         logger.warning(f"Session key mismatch: path={global_session_key}, body={request.global_session_key}")
         raise HTTPException(status_code=400, detail="global_session_key mismatch")
@@ -316,9 +264,13 @@ async def update_session_state(
         result = await service.patch_session_state(request, background_tasks)
         logger.info(f"Session state updated: global_session_key={global_session_key}, status={result.status}")
         return result
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to update session state: global_session_key={global_session_key}, error={e}", exc_info=True)
-        raise
+        raise HTTPException(status_code=500, detail="세션 상태 업데이트에 실패했습니다.")
 
 
 # ============ 세션 종료 ============
@@ -347,9 +299,6 @@ async def close_session_by_key(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     service: SessionService = Depends(get_session_service),
 ):
-    """
-    세션 종료 API (Master Agent 전용, global_session_key 경로 사용)
-    """
     logger.info(f"Closing session: global_session_key={global_session_key}, reason={close_reason}")
     try:
         request = SessionCloseRequest(
@@ -359,9 +308,13 @@ async def close_session_by_key(
         result = await service.close_session(request, background_tasks)
         logger.info(f"Session closed: global_session_key={global_session_key}")
         return result
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to close session: global_session_key={global_session_key}, error={e}", exc_info=True)
-        raise
+        raise HTTPException(status_code=500, detail="세션 종료에 실패했습니다.")
 
 
 @router.delete(
@@ -387,11 +340,6 @@ async def close_session(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     service: SessionService = Depends(get_session_service),
 ):
-    """
-    세션 종료 API (토큰 기반)
-
-    - Client: 사용자가 앱 종료 시 호출
-    """
     token = extract_token_from_request(request)
     if not token:
         logger.warning("Close session request without access token")
@@ -401,9 +349,11 @@ async def close_session(
         result = await service.auth_service.close_session_by_token(token, close_reason)
         logger.info(f"Session closed by token: reason={close_reason}")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to close session by token: error={e}", exc_info=True)
-        raise
+        raise HTTPException(status_code=500, detail="세션 종료에 실패했습니다.")
 
 
 # ============ 실시간 API 연동 결과 저장 ============
@@ -444,127 +394,22 @@ async def save_api_result(
     request: SolApiResultRequest,
     service: SessionService = Depends(get_session_service),
 ):
-    """실시간 API 연동 결과를 턴 메타데이터로 저장한다."""
-
-    logger.info(f"Saving API result: global_session_key={global_session_key}, turn_id={request.turn_id}, agent={request.agent_id}")
-
-    # 경로 변수와 요청 body의 global_session_key 일치 확인
     if request.global_session_key != global_session_key:
         logger.warning(f"API result key mismatch: path={global_session_key}, body={request.global_session_key}")
         raise HTTPException(status_code=400, detail="global_session_key mismatch")
 
+    logger.info(f"Saving API result: global_session_key={global_session_key}, turn_id={request.turn_id}")
     try:
-        # 1) 세션 조회
-        session = await service.session_repo.get(global_session_key)
-        if not session:
-            logger.warning(f"Session not found for API result: global_session_key={global_session_key}")
-            raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
-
-        # 2) SOL API 요청/응답 메타데이터 구성 (SOL 스펙 필드명을 그대로 유지)
-        request_payloads = [p.model_dump(by_alias=True) for p in request.transaction_payload] if request.transaction_payload else []
-        response_results = [r.model_dump(by_alias=True) for r in request.transaction_result] if request.transaction_result else []
-
-        sol_metadata: dict[str, Any] = {
-            "global_session_key": request.global_session_key,
-            "turn_id": request.turn_id,
-        }
-
-        if request.agent_id is not None:
-            sol_metadata["agent"] = request.agent_id
-
-        # 요청/응답 블록은 존재하는 값만 포함하여 구성
-        request_block: dict[str, Any] = {}
-        if request_payloads:
-            request_block["transactionPayload"] = request_payloads
-
-        response_block: dict[str, Any] = {}
-        if request.glob_id is not None:
-            response_block["globId"] = request.glob_id
-        if request.request_id is not None:
-            response_block["requestId"] = request.request_id
-        if request.result is not None:
-            response_block["result"] = request.result
-        if request.result_code is not None:
-            response_block["resultCode"] = request.result_code
-        if request.result_msg is not None:
-            response_block["resultMsg"] = request.result_msg
-        if response_results:
-            response_block["transactionResult"] = response_results
-
-        if request_block:
-            sol_metadata["request"] = request_block
-        if response_block:
-            sol_metadata["response"] = response_block
-
-        # 3) 턴 메타데이터로 저장 (Redis에 즉시 저장)
-        now = datetime.now(UTC).isoformat()
-        turn_data = {
-            "turn_id": request.turn_id,
-            "global_session_key": request.global_session_key,
-            "timestamp": now,
-            "metadata": {"sol_api": sol_metadata},
-        }
-
-        # Redis에 즉시 저장 (SessionRepository의 Turn 메서드 사용)
-        await service.session_repo.add_turn(global_session_key, turn_data)
-
+        result = await service.save_api_result(global_session_key, request)
         logger.info(f"API result saved: global_session_key={global_session_key}, turn_id={request.turn_id}")
-        return TurnResponse(**turn_data)
+        return result
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(
-            f"Failed to save API result: global_session_key={global_session_key}, turn_id={request.turn_id}, error={e}", exc_info=True
-        )
-        raise
-
-
-# ============ 세션 전체 정보 조회 ============
-
-
-@router.get(
-    "/{global_session_key}/full",
-    response_model=SessionFullResponse,
-    summary="세션 전체 정보 조회 (세션 + 턴 목록)",
-    description="""
-    세션 메타데이터와 해당 세션의 모든 턴 메타데이터를 한 번에 조회
-
-    필수 경로 변수:
-    - global_session_key: 조회할 세션 키
-
-    주요 응답 필드:
-    - session: 세션 메타데이터 전체 (GET /api/v1/sessions/{key} 와 동일한 구조)
-    - turns: 턴 메타데이터 목록 (POST /api/v1/sessions/{key}/api-results 로 저장된 데이터)
-    - total_turns: 전체 턴 수
-
-    사용 사례:
-    - 관리자/Portal이 특정 세션의 전체 이력 조회
-    - 디버깅/모니터링 시 세션 상태 + SOL API 호출 이력 확인
-    """,
-)
-async def get_session_full(
-    global_session_key: str,
-    service: SessionService = Depends(get_session_service),
-):
-    """세션 메타데이터 + 모든 턴 메타데이터를 한 번에 조회"""
-
-    logger.info(f"Getting full session: global_session_key={global_session_key}")
-    try:
-        # 1) 세션 조회 (SessionResolveResponse)
-        session_response = await service.resolve_session(SessionResolveRequest(global_session_key=global_session_key))
-
-        # 2) 세션의 턴 목록 조회 (resolve_session에서 이미 세션 존재 확인됨)
-        turns = await service.session_repo.get_turns(global_session_key)
-
-        logger.info(f"Full session retrieved: global_session_key={global_session_key}, total_turns={len(turns)}")
-        return SessionFullResponse(
-            session=session_response.model_dump(),
-            turns=turns,
-            total_turns=len(turns),
-        )
-    except Exception as e:
-        logger.error(f"Failed to get full session: global_session_key={global_session_key}, error={e}", exc_info=True)
-        raise
+        logger.error(f"Failed to save API result: global_session_key={global_session_key}, error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="API 결과 저장에 실패했습니다.")
 
 
 # ============ 실시간 프로파일 업데이트 ============
@@ -588,13 +433,11 @@ async def update_realtime_personal_context(
     body: RealtimePersonalContextRequest,
     service: SessionService = Depends(get_session_service),
 ):
-    """실시간 프로파일 업데이트 API"""
     token = extract_token_from_request(request)
     if not token:
         logger.warning("Realtime profile update request without access token")
         raise HTTPException(status_code=401, detail="Access token required")
 
-    # 토큰에서 global_session_key 추출
     global_session_key = await get_global_session_key_from_token(token)
 
     profile_data = body.profile_data
@@ -618,6 +461,10 @@ async def update_realtime_personal_context(
             cusno,
         )
         return result
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             "Failed to update realtime profile: global_session_key=%s, cusno=%s, error=%s",
@@ -626,4 +473,4 @@ async def update_realtime_personal_context(
             e,
             exc_info=True,
         )
-        raise
+        raise HTTPException(status_code=500, detail="실시간 프로파일 업데이트에 실패했습니다.")

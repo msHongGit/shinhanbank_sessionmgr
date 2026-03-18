@@ -41,7 +41,7 @@ class MinioBatchProfileRepository:
         try:
             # 동일 프로젝트 내 MinIO 단건 조회 헬퍼
             from app.services.batch_profile_minio_retrieve import retrieve_cusno  # type: ignore[import]
-        except Exception as exc:  # pragma: no cover - 환경에 따라 달라질 수 있음
+        except ImportError as exc:  # pragma: no cover - 환경에 따라 달라질 수 있음
             logger.error("retrieve_cusno is not available in batch_profile_minio_retrieve: %s", exc)
             return None
 
@@ -59,7 +59,7 @@ class MinioBatchProfileRepository:
                     data_type=data_type,
                     cusno=cusno_str,
                 )
-            except Exception as exc:  # pragma: no cover - 외부 시스템 오류 방어
+            except (OSError, RuntimeError) as exc:  # pragma: no cover - 외부 시스템 오류 방어
                 logger.error(
                     "Failed to retrieve %s batch profile from MinIO for CUSNO %s: %s",
                     data_type,
@@ -92,7 +92,7 @@ class MinioBatchProfileRepository:
                 self._retrieve_single_profile("daily", cusno),
                 self._retrieve_single_profile("monthly", cusno),
             )
-        except Exception as exc:  # pragma: no cover - 안전장치
+        except (OSError, RuntimeError) as exc:  # pragma: no cover - 안전장치
             logger.error("Failed to fetch batch profile from MinIO for user %s: %s", user_id, exc)
             return None
 

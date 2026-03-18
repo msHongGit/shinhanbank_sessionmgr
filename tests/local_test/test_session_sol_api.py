@@ -70,6 +70,7 @@ class TestSOLAPIResults:
         assert sol_meta["response"]["globId"] == "GLOB123"
         assert sol_meta["response"]["result"] == "SUCCESS"
 
+    @pytest.mark.skip(reason="/{global_session_key}/full API 제거")
     @pytest.mark.asyncio
     async def test_get_session_full_info(self, client, agw_headers, ma_headers):
         """세션 전체 정보 조회 (세션 메타데이터 + 턴 목록) API 테스트."""
