@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 import redis.asyncio as redis
+from redis.exceptions import RedisError
 
 _redis_client: redis.Redis | None = None
 
@@ -63,7 +64,7 @@ async def init_redis() -> None:
     try:
         await _redis_client.ping()
         print("✅ Redis connected (Async)")
-    except Exception as e:
+    except RedisError as e:
         print(f"⚠️ Redis connection warning: {e}")
         # Continue anyway - connection will be retried on first use
 

@@ -13,9 +13,33 @@ from app.api.v1.sessions import router as sessions_router
 from app.config import ALLOWED_ORIGINS, API_PREFIX, DEBUG
 from app.core.exceptions import SessionManagerError
 from app.logger_config import setup_es_logger
+from app.utils.app_logger_format import OneLineErrorFormatter
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+def configure_logging() -> None:
+    """애플리케이션 공통 로거 설정."""
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        OneLineErrorFormatter(
+            fmt="%(asctime)s [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+
+    # uvicorn 기본 로그는 애플리케이션 로그와 분리해 모두 억제한다.
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uvicorn_logger = logging.getLogger(logger_name)
+        uvicorn_logger.handlers.clear()
+        uvicorn_logger.propagate = False
+        uvicorn_logger.disabled = True
+
+
+configure_logging()
 
 
 @asynccontextmanager
@@ -27,9 +51,10 @@ async def lifespan(app: FastAPI):
     # ES 전용 로거 초기화 (실패해도 서비스는 계속 동작하도록 방어)
     try:
         setup_es_logger()
-        logging.getLogger(__name__).info("ES logger initialized")
     except (OSError, ValueError) as exc:  # pragma: no cover - 환경에 따라 다를 수 있음
-        logging.getLogger(__name__).warning("Failed to setup ES logger: %s", exc, exc_info=True)
+        # Startup 구간은 요청/span 컨텍스트 밖이므로 application logger를 사용하지 않는다.
+        # 외부 OTel hook이 첫 로그의 trace/span 값을 고정해 버리는 환경을 피하기 위함이다.
+        print(f"⚠️ Failed to setup ES logger: {exc}")
 
     # Redis 비동기 초기화
     from app.db.redis import init_redis
@@ -195,4 +220,11 @@ app.openapi = custom_openapi  # type: ignore[assignment]
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=DEBUG)
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=5000,
+        reload=DEBUG,
+        log_config=None,
+        access_log=False,
+    )

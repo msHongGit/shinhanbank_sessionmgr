@@ -376,4 +376,3 @@ def apply_column_mapping(doc: dict, column_mapping: dict[str, str]) -> dict:
         result["data"] = _remap(data_val)
 
     return result
-

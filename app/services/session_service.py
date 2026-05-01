@@ -538,6 +538,6 @@ def get_session_service() -> SessionService:
         from app.repositories.minio_batch_profile_repository import MinioBatchProfileRepository
 
         profile_repo = MinioBatchProfileRepository()
-    except Exception as e:  # pragma: no cover - 환경에 따라 다를 수 있음
+    except ImportError as e:  # pragma: no cover - 환경에 따라 다를 수 있음
         logger.warning(f"Failed to initialize MinioBatchProfileRepository: {e}")
     return SessionService(profile_repo=profile_repo)

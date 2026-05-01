@@ -33,10 +33,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
 
-def _with_otel_ids(message: str) -> str:
-    return f"[trace=0 span=0] {message}"
-
-
 # ============ 세션 생성 ============
 
 
@@ -71,16 +67,13 @@ async def create_session(
     service: SessionService = Depends(get_session_service),
 ):
     user_id_display = request.user_id or "(empty)"
-    logger.info(_with_otel_ids(f"Creating session for user_id: {user_id_display}"))
+    logger.info(f"Creating session for user_id: {user_id_display}")
     try:
         result = await service.create_session(request, background_tasks)
-        logger.info(_with_otel_ids(f"Session created: global_session_key={result.global_session_key}"))
+        logger.info(f"Session created: global_session_key={result.global_session_key}")
         return result
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(_with_otel_ids(f"Failed to create session for user_id={user_id_display}: {e}"), exc_info=True)
-        raise HTTPException(status_code=500, detail="세션 생성에 실패했습니다.")
 
 
 # 주의: 구체적인 경로(/verify, /refresh)를 동적 경로(/{global_session_key})보다 먼저 정의
@@ -109,18 +102,15 @@ async def verify_token_and_get_session(
 ):
     token = extract_token_from_request(request)
     if not token:
-        logger.warning(_with_otel_ids("Verify request without access token"))
+        logger.warning("Verify request without access token")
         raise HTTPException(status_code=401, detail="Access token required")
 
     try:
         result = await service.auth_service.verify_token_and_get_session(token)
-        logger.info(_with_otel_ids(f"Token verified: global_session_key={result.global_session_key}"))
+        logger.info(f"Token verified: global_session_key={result.global_session_key}")
         return result
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(_with_otel_ids(f"Failed to verify token: {e}"), exc_info=True)
-        raise HTTPException(status_code=500, detail="토큰 검증에 실패했습니다.")
 
 
 @router.post(
@@ -158,18 +148,15 @@ async def refresh_token(
             refresh_token = auth_header[7:]
 
     if not refresh_token:
-        logger.warning(_with_otel_ids("Refresh request without refresh token"))
+        logger.warning("Refresh request without refresh token")
         raise HTTPException(status_code=401, detail="Refresh token required")
 
     try:
         result = await service.auth_service.refresh_token(refresh_token)
-        logger.info(_with_otel_ids(f"Token refreshed: global_session_key={result.global_session_key}"))
+        logger.info(f"Token refreshed: global_session_key={result.global_session_key}")
         return result
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(_with_otel_ids(f"Failed to refresh token: {e}"), exc_info=True)
-        raise HTTPException(status_code=500, detail="토큰 갱신에 실패했습니다.")
 
 
 # ============ 세션 조회 ============
@@ -204,7 +191,7 @@ async def get_session(
     agent_id: str | None = Query(None, description="Agent ID (옵션)"),
     service: SessionService = Depends(get_session_service),
 ):
-    logger.info(_with_otel_ids(f"Getting session: global_session_key={global_session_key}, agent_type={agent_type}, agent_id={agent_id}"))
+    logger.info(f"Getting session: global_session_key={global_session_key}, agent_type={agent_type}, agent_id={agent_id}")
     try:
         request = SessionResolveRequest(
             global_session_key=global_session_key,
@@ -212,15 +199,12 @@ async def get_session(
             agent_id=agent_id,
         )
         result = await service.resolve_session(request)
-        logger.info(_with_otel_ids(f"Session retrieved: global_session_key={global_session_key}, state={result.session_state}"))
+        logger.info(f"Session retrieved: global_session_key={global_session_key}, state={result.session_state}")
         return result
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(_with_otel_ids(f"Failed to get session: global_session_key={global_session_key}, error={e}"), exc_info=True)
-        raise HTTPException(status_code=500, detail="세션 조회에 실패했습니다.")
 
 
 # ============ 세션 상태 업데이트 ============
@@ -260,21 +244,18 @@ async def update_session_state(
     service: SessionService = Depends(get_session_service),
 ):
     if request.global_session_key != global_session_key:
-        logger.warning(_with_otel_ids(f"Session key mismatch: path={global_session_key}, body={request.global_session_key}"))
+        logger.warning(f"Session key mismatch: path={global_session_key}, body={request.global_session_key}")
         raise HTTPException(status_code=400, detail="global_session_key mismatch")
 
-    logger.info(_with_otel_ids(f"Updating session state: global_session_key={global_session_key}, state={request.session_state}"))
+    logger.info(f"Updating session state: global_session_key={global_session_key}, state={request.session_state}")
     try:
         result = await service.patch_session_state(request, background_tasks)
-        logger.info(_with_otel_ids(f"Session state updated: global_session_key={global_session_key}, status={result.status}"))
+        logger.info(f"Session state updated: global_session_key={global_session_key}, status={result.status}")
         return result
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(_with_otel_ids(f"Failed to update session state: global_session_key={global_session_key}, error={e}"), exc_info=True)
-        raise HTTPException(status_code=500, detail="세션 상태 업데이트에 실패했습니다.")
 
 
 # ============ 세션 종료 ============
@@ -303,22 +284,19 @@ async def close_session_by_key(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     service: SessionService = Depends(get_session_service),
 ):
-    logger.info(_with_otel_ids(f"Closing session: global_session_key={global_session_key}, reason={close_reason}"))
+    logger.info(f"Closing session: global_session_key={global_session_key}, reason={close_reason}")
     try:
         request = SessionCloseRequest(
             global_session_key=global_session_key,
             close_reason=close_reason,
         )
         result = await service.close_session(request, background_tasks)
-        logger.info(_with_otel_ids(f"Session closed: global_session_key={global_session_key}"))
+        logger.info(f"Session closed: global_session_key={global_session_key}")
         return result
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(_with_otel_ids(f"Failed to close session: global_session_key={global_session_key}, error={e}"), exc_info=True)
-        raise HTTPException(status_code=500, detail="세션 종료에 실패했습니다.")
 
 
 @router.delete(
@@ -346,18 +324,15 @@ async def close_session(
 ):
     token = extract_token_from_request(request)
     if not token:
-        logger.warning(_with_otel_ids("Close session request without access token"))
+        logger.warning("Close session request without access token")
         raise HTTPException(status_code=401, detail="Access token required")
 
     try:
         result = await service.auth_service.close_session_by_token(token, close_reason)
-        logger.info(_with_otel_ids(f"Session closed by token: reason={close_reason}"))
+        logger.info(f"Session closed by token: reason={close_reason}")
         return result
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(_with_otel_ids(f"Failed to close session by token: error={e}"), exc_info=True)
-        raise HTTPException(status_code=500, detail="세션 종료에 실패했습니다.")
 
 
 # ============ 실시간 API 연동 결과 저장 ============
@@ -399,21 +374,18 @@ async def save_api_result(
     service: SessionService = Depends(get_session_service),
 ):
     if request.global_session_key != global_session_key:
-        logger.warning(_with_otel_ids(f"API result key mismatch: path={global_session_key}, body={request.global_session_key}"))
+        logger.warning(f"API result key mismatch: path={global_session_key}, body={request.global_session_key}")
         raise HTTPException(status_code=400, detail="global_session_key mismatch")
 
-    logger.info(_with_otel_ids(f"Saving API result: global_session_key={global_session_key}, turn_id={request.turn_id}"))
+    logger.info(f"Saving API result: global_session_key={global_session_key}, turn_id={request.turn_id}")
     try:
         result = await service.save_api_result(global_session_key, request)
-        logger.info(_with_otel_ids(f"API result saved: global_session_key={global_session_key}, turn_id={request.turn_id}"))
+        logger.info(f"API result saved: global_session_key={global_session_key}, turn_id={request.turn_id}")
         return result
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(_with_otel_ids(f"Failed to save API result: global_session_key={global_session_key}, error={e}"), exc_info=True)
-        raise HTTPException(status_code=500, detail="API 결과 저장에 실패했습니다.")
 
 
 # ============ 실시간 프로파일 업데이트 ============
@@ -439,7 +411,7 @@ async def update_realtime_personal_context(
 ):
     token = extract_token_from_request(request)
     if not token:
-        logger.warning(_with_otel_ids("Realtime profile update request without access token"))
+        logger.warning("Realtime profile update request without access token")
         raise HTTPException(status_code=401, detail="Access token required")
 
     global_session_key = await get_global_session_key_from_token(token)
@@ -452,22 +424,16 @@ async def update_realtime_personal_context(
 
     cusno = str(cusno_raw).strip() if cusno_raw else None
     cusno_display = cusno if cusno else "(no cusnoN10)"
-    logger.info(_with_otel_ids(f"Updating realtime profile: global_session_key={global_session_key}, cusno={cusno_display}"))
+    logger.info(f"Updating realtime profile: global_session_key={global_session_key}, cusno={cusno_display}")
 
     try:
         result = await service.profile_service.update_realtime_personal_context(
             global_session_key,
             body,
         )
-        logger.info(_with_otel_ids(f"Realtime profile updated: global_session_key={global_session_key}, cusno={cusno}"))
+        logger.info(f"Realtime profile updated: global_session_key={global_session_key}, cusno={cusno}")
         return result
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {global_session_key}")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(
-            _with_otel_ids(f"Failed to update realtime profile: global_session_key={global_session_key}, cusno={cusno}, error={e}"),
-            exc_info=True,
-        )
-        raise HTTPException(status_code=500, detail="실시간 프로파일 업데이트에 실패했습니다.")
